@@ -213,7 +213,9 @@ deliver_change() {
   gh pr checks "$pr" --watch --fail-fast --interval 15 >/dev/null || die "CI failed on $pr; not merging"
   ok "CI passed"
   _before_merge
-  gh pr merge "$pr" --squash --delete-branch >/dev/null
+  # gh also checks out and pulls main locally; keep its chatter unless it fails.
+  local out
+  out=$(gh pr merge "$pr" --squash --delete-branch 2>&1) || die "Could not merge $pr: $out"
   git -C "$ROOT" switch --quiet "$GITOPS_BRANCH"
   git -C "$ROOT" branch --quiet -D "$branch" 2>/dev/null || true
   sync_main

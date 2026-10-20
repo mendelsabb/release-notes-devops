@@ -14,5 +14,6 @@ spec:
   destinations:
     - { server: https://kubernetes.default.svc, namespace: dev }
     - { server: https://kubernetes.default.svc, namespace: prod }
+    - { server: https://kubernetes.default.svc, namespace: staging }
   # Namespaces are platform-owned (scripts/up.sh); apps may not create cluster-scoped resources.
   clusterResourceWhitelist: []

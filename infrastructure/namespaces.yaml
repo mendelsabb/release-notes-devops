@@ -19,6 +19,14 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: staging
+  labels:
+    environment: staging
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
   name: argocd
 ---
 apiVersion: v1

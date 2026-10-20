@@ -162,6 +162,8 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # ci-deploy-dev.sh compares this commit with the latest main
       - id: names
         env:
           TAG: ${{ needs.build.outputs.tag }}
@@ -213,14 +215,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          source scripts/lib.sh
-          write_image_file dev "$IMAGE" "$DIGEST" "$RELEASE_VERSION"
-          commit_gitops "deploy(dev): release-notes ${RELEASE_VERSION} (${DIGEST:7:12}) [ci]" "$(image_file dev)"
           # Commits pushed with GITHUB_TOKEN do not trigger workflows: no CI loop.
-          for attempt in 1 2 3; do
-            git pull --rebase --quiet origin main && git push origin HEAD:main && break
-            echo "push raced with another commit (attempt $attempt), retrying"
-          done
+          scripts/ci-deploy-dev.sh "$IMAGE" "$DIGEST" "$RELEASE_VERSION"
           {
             echo "### Deployed to dev"
             echo "- image: \`${IMAGE}@${DIGEST}\`"

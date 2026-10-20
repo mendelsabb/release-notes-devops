@@ -80,7 +80,7 @@ Free host ports: 8080, 8081, 3000, 8090, 8418 (cluster) and 5001 (registry). The
 ## Quick start
 
 ```bash
-make up        # cluster, registry, platform, both environments (6-10 min on first run)
+make up        # cluster, registry, platform, both environments (~4 min measured; longer on first image pulls)
 make status    # desired state in git vs what Argo CD / Kubernetes report
 make e2e       # 38 end-to-end checks against the running stack
 ```
@@ -203,9 +203,10 @@ Measured: **6,002 requests, 0 failed** during 1.0.0 → 1.1.0 (details in
 badge, `/version` and the `X-App-Version` header. All of these come from build arguments baked into
 the image.
 
-You can also measure manually. Run `make traffic ENV=prod DURATION=180` in one terminal and
-`make release VERSION=x` / `make promote` / `make rollback ENV=prod` in another. The generator
-accepts `--keepalive`, `--rps` and `--max-failures`; see `scripts/traffic/traffic.py`.
+You can also measure manually: run `make traffic ENV=prod DURATION=180` in one terminal and
+`make release VERSION=x` / `make promote` / `make rollback ENV=prod` in another. Extra generator flags
+(`--keepalive`, `--rps`, `--max-failures`, see `scripts/traffic/traffic.py`) go through the script, e.g.
+`scripts/traffic.sh prod 180 --rps 80`.
 
 What makes it work: `maxSurge: 1, maxUnavailable: 0`; readiness gates traffic and `minReadySeconds: 5`;
 a `preStop` sleep of 5 s so endpoint removal propagates before shutdown; uvicorn drains in-flight
@@ -216,11 +217,12 @@ enforces this); `progressDeadlineSeconds: 120` turns a stuck rollout into a visi
 
 | Command | What happens | Measured |
 |---|---|---|
-| `make demo-broken-rollout` | deploys an image whose `/ready` always fails, under traffic | new pod never Ready, 4 old pods keep serving, `ProgressDeadlineExceeded`, Argo CD **Synced/Degraded**; auto `make rollback` → Healthy; **0 of 9,601** requests failed |
+| `make demo-broken-rollout` | deploys an image whose `/ready` always fails, under traffic | new pod never Ready, 4 old pods keep serving, `ProgressDeadlineExceeded`, Argo CD **Synced/Degraded**; auto `make rollback` → Healthy; **0 of ~9,600** requests failed |
 | `make demo-pod-kill` | `kubectl delete pod` on one prod pod, under traffic | replica restored; **0 of 2,400** failed |
-| `CRASH=1 make demo-pod-kill` | SIGKILL of the app process (no preStop, no drain) | kubelet restarts the container; **4 of 1,801** failed (connection refused, about 10 ms window) |
-| `make demo-db-restart` | deletes the Postgres pod, under traffic | same PVC re-attached, data intact, back in about 2 s, no API restarts (liveness ignores the DB); **48 of 3,601** got `503`. Postgres is a single point of failure |
+| `CRASH=1 make demo-pod-kill` | SIGKILL of the app process (no preStop, no drain) | kubelet restarts the container; **4–8 of ~1,800** failed (connection refused, a few ms window) |
+| `make demo-db-restart` | deletes the Postgres pod, under traffic | same PVC re-attached, data intact, back in about 2–3 s, no API restarts (liveness ignores the DB); **48–80 of ~3,600** got `503`. Postgres is a single point of failure |
 | `make rollback ENV=prod` | GitOps rollback under traffic | about 35 s to Healthy; **0 of 4,000** failed |
+| `scripts/traffic.sh prod 150 --keepalive --max-failures 1000000` during a rollout | persistent connections, no client retry | **11 of 6,003** failed (`RemoteDisconnected` when a draining pod closes idle connections); see DECISIONS.md |
 
 The demos only act on the local kind cluster: `scripts/lib.sh` pins every kubectl call to
 `--context kind-release-notes`.

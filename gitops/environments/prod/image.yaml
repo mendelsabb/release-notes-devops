@@ -3,5 +3,5 @@
 # rollbacks never revert unrelated configuration.
 image:
   repository: localhost:5001/release-notes
-  digest: ""
+  digest: "sha256:bddd1fa5c4fca5a1842d9c3cbfee5b595e1fa88344ec42ba5cde7d62d7be9fae"
   version: "1.0.0"

@@ -1,8 +1,0 @@
-# staging: prod-like settings at a smaller size; reached with kubectl port-forward.
-environment: staging
-logLevel: INFO
-replicaCount: 1
-
-rollout:
-  minReadySeconds: 5
-  progressDeadlineSeconds: 120

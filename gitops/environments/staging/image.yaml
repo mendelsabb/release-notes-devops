@@ -1,7 +1,0 @@
-# Desired image for the "staging" environment. Written by automation (CI, make
-# release/promote/rollback) — the only thing those workflows change, so image
-# rollbacks never revert unrelated configuration.
-image:
-  repository: ghcr.io/mendelsabb/release-notes
-  digest: "sha256:df82f667c6919aaa3df95eba0323a3ffb5d864186aea816865fc5e0a732cfdcf"
-  version: "1.2.0"

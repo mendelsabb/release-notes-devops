@@ -26,11 +26,12 @@ log "Step 3/4: promote ${VERSION} to prod (same digest as dev)"
 NO_WAIT=1 "$ROOT/scripts/promote.sh"
 k -n prod rollout status deployment/release-notes --timeout=300s
 wait_for_app prod 300
-log "Pods after rollout:"
+# `rollout status` returns while old pods are still in preStop/draining.
+_old_pods_gone() { [[ -z "$(k -n prod get pods -l "app.kubernetes.io/component=api,app.kubernetes.io/version=$1" -o name)" ]]; }
+wait_until 90 "${old} pods to finish draining and terminate" _old_pods_gone "$old"
+ok "All ${old} pods drained and terminated"
 k -n prod get pods -l app.kubernetes.io/component=api \
   -o custom-columns='POD:.metadata.name,READY:.status.containerStatuses[0].ready,VERSION:.metadata.labels.app\.kubernetes\.io/version'
-old_pods=$(k -n prod get pods -l "app.kubernetes.io/component=api,app.kubernetes.io/version=${old}" -o name | wc -l | tr -d ' ')
-[[ "$old_pods" == "0" ]] && ok "No ${old} pods remain (old ReplicaSet drained)" || warn "${old_pods} pod(s) of ${old} still present"
 ok "UI/API now reports: $(curl -fsS http://127.0.0.1:8080/version)"
 
 log "Step 4/4: waiting for the traffic generator to finish"

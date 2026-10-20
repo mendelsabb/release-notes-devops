@@ -40,6 +40,8 @@ known-first-party = ["app", "tests"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S"]
 "scripts/**" = ["S"]
+# PromQL/LogQL strings read better unbroken.
+"scripts/gen_dashboard.py" = ["S", "E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -18,7 +18,6 @@ Exit status is 1 when failures exceed --max-failures (default 0).
 import argparse
 import http.client
 import json
-import socket
 import sys
 import threading
 import time
@@ -82,7 +81,9 @@ def worker(args, target, stats: Stats, start: float, stop: threading.Event, inte
     next_at = time.monotonic()
     while not stop.is_set():
         if conn is None or not args.keepalive:
-            conn = http.client.HTTPConnection(target.hostname, target.port or 80, timeout=args.timeout)
+            conn = http.client.HTTPConnection(
+                target.hostname, target.port or 80, timeout=args.timeout
+            )
         t0 = time.monotonic()
         try:
             conn.request("GET", target.path or "/", headers={"User-Agent": "traffic-generator"})
@@ -90,13 +91,11 @@ def worker(args, target, stats: Stats, start: float, stop: threading.Event, inte
             resp.read()
             latency = time.monotonic() - t0
             outcome = "ok" if 200 <= resp.status < 300 else "http_error"
-            stats.record(
-                t0 - start, outcome, latency, resp.status, resp.getheader("X-App-Version")
-            )
+            stats.record(t0 - start, outcome, latency, resp.status, resp.getheader("X-App-Version"))
             if not args.keepalive or resp.getheader("Connection", "").lower() == "close":
                 conn.close()
                 conn = None
-        except (TimeoutError, socket.timeout) as exc:
+        except TimeoutError as exc:
             stats.record(t0 - start, "timeout", time.monotonic() - t0, err=type(exc).__name__)
             conn.close()
             conn = None

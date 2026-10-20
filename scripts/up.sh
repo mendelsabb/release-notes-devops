@@ -28,7 +28,23 @@ preflight() {
   fi
   [[ -z "$(git -C "$ROOT" status --porcelain)" ]] ||
     warn "Uncommitted changes are not deployed: Argo CD deploys committed state only."
-  ok "Prerequisites satisfied"
+  local mode
+  mode=$(gitops_mode)
+  case "$mode" in
+    github)
+      github_repo_url >/dev/null ||
+        die "No 'origin' remote: GitHub mode deploys from your GitHub repository. Add one, or run: make up GITOPS_MODE=local"
+      git -C "$ROOT" fetch --quiet origin "$GITOPS_BRANCH" ||
+        die "Cannot fetch $(github_repo_url). Check network access, or run: make up GITOPS_MODE=local"
+      [[ "$(git -C "$ROOT" rev-parse HEAD)" == "$(git -C "$ROOT" rev-parse "origin/${GITOPS_BRANCH}")" ]] ||
+        warn "Local HEAD differs from origin/${GITOPS_BRANCH}: Argo CD deploys what is on GitHub."
+      ;;
+    local) ;;
+    *) die "GITOPS_MODE must be 'github' or 'local' (got '$mode')" ;;
+  esac
+  mkdir -p "$ROOT/.local"
+  echo "$mode" >"$MODE_FILE"
+  ok "Prerequisites satisfied (GitOps source: $(gitops_repo_url))"
 }
 
 ensure_registry() {
@@ -164,9 +180,10 @@ image_available() {
   fi
 }
 
-# A fresh clone may reference images that only exist on another machine (a
-# previous local registry, or a private GHCR package). Build the current source
-# once and record its digest in git, so Argo CD still deploys from git.
+# github mode: images come only from CI (GHCR); a missing one is an error.
+# local mode: a checkout may reference images this machine cannot pull (e.g. a
+# private registry); build the current source once and record its digest in
+# git, so Argo CD still deploys from git.
 ensure_app_images() {
   local env missing=()
   for env in "${ENVIRONMENTS[@]}"; do
@@ -176,6 +193,10 @@ ensure_app_images() {
     ok "Images referenced by gitops/environments/*/image.yaml are available"
     return
   fi
+  [[ "$(gitops_mode)" == local ]] ||
+    die "Images for ${missing[*]} in gitops/environments/*/image.yaml cannot be pulled.
+    In GitHub mode images are built by CI only: check the CI run on main and that the GHCR
+    package is public, or use the offline mode: make up GITOPS_MODE=local"
   local version digest files=()
   version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/pyproject.toml")"
   log "Building release-notes:${version} from $(git -C "$ROOT" rev-parse --short HEAD) for: ${missing[*]}"
@@ -189,7 +210,7 @@ ensure_app_images() {
 
 deploy_apps() {
   push_gitops
-  k apply -f "$ROOT/infrastructure/argocd/root-app.yaml" >/dev/null
+  sed "s|REPO_URL|$(gitops_repo_url)|g" "$ROOT/infrastructure/argocd/root-app.yaml" | k apply -f - >/dev/null
   ok "Argo CD root application registered (it creates the ApplicationSet and one app per environment)"
   wait_for_app dev 600
   wait_for_app prod 600
@@ -216,6 +237,7 @@ ${_B}Release Notes is up.${_N}
   Grafana      http://localhost:3000   (anonymous view; admin / ${grafana_pw})
   Argo CD      http://localhost:8090   (admin / ${argocd_pw:-<see argocd-initial-admin-secret>})
 
+GitOps source: $(gitops_repo_url) ($(gitops_mode) mode)
 Next: make status | make demo-rollout | make rollback ENV=prod | make down
 EOF
 }
@@ -224,7 +246,7 @@ preflight
 ensure_registry
 ensure_cluster
 ensure_secrets
-ensure_git_server
+if [[ "$(gitops_mode)" == local ]]; then ensure_git_server; fi
 install_platform
 ensure_app_images
 deploy_apps

@@ -4,7 +4,10 @@
 # GITOPS_ONLY=1 (used by CI): only write + commit; no cluster gate, push or wait.
 source "$(dirname "$0")/lib.sh"
 gitops_only=${GITOPS_ONLY:-0}
-[[ "$gitops_only" == "1" ]] || require_cluster
+if [[ "$gitops_only" != "1" ]]; then
+  require_cluster
+  sync_main
+fi
 
 repo=$(image_field dev repository)
 digest=$(image_field dev digest)
@@ -28,9 +31,12 @@ if [[ "$(image_field prod digest)" == "$digest" ]]; then
   exit 0
 fi
 write_image_file prod "$repo" "$digest" "$version"
-commit_gitops "promote(prod): release-notes ${version} (${digest:7:12}) from dev" "$(image_file prod)"
-[[ "$gitops_only" == "1" ]] && exit 0
-push_gitops
+msg="promote(prod): release-notes ${version} (${digest:7:12}) from dev"
+if [[ "$gitops_only" == "1" ]]; then
+  commit_gitops "$msg" "$(image_file prod)"
+  exit 0
+fi
+deliver_change "$msg" "$(image_file prod)"
 
 [[ "${NO_WAIT:-0}" == "1" ]] && exit 0
 wait_for_app prod 300

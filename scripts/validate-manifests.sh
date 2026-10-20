@@ -21,7 +21,9 @@ for env in "${ENVIRONMENTS[@]}"; do
   ok "helm lint + template: $env ($(grep -c '^kind:' "$out/$env.yaml") objects)"
 done
 sed "s|GIT_SERVER_IMAGE|${GIT_SERVER_IMAGE}|" "$ROOT/infrastructure/git-server/k8s.yaml" >"$out/git-server.yaml"
-cp "$ROOT/infrastructure/namespaces.yaml" "$ROOT/infrastructure/argocd/root-app.yaml" "$out/"
+cp "$ROOT/infrastructure/namespaces.yaml" "$out/"
+sed "s|REPO_URL|https://github.com/example/release-notes.git|g" \
+  "$ROOT/infrastructure/argocd/root-app.yaml" >"$out/root-app.yaml"
 require_cmd kubectl
 kubectl kustomize "$ROOT/gitops/argocd" >"$out/argocd.yaml"
 

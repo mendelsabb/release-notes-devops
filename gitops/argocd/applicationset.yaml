@@ -14,7 +14,7 @@ spec:
   goTemplateOptions: ["missingkey=error"]
   generators:
     - git:
-        repoURL: http://git-server.git.svc.cluster.local/release-notes.git
+        repoURL: https://github.com/mendelsabb/release-notes-devops.git
         revision: main
         directories:
           - path: gitops/environments/*
@@ -27,7 +27,7 @@ spec:
       # Fixed, not templated: a folder in Git cannot pick its own permissions.
       project: release-notes
       source:
-        repoURL: http://git-server.git.svc.cluster.local/release-notes.git
+        repoURL: https://github.com/mendelsabb/release-notes-devops.git
         targetRevision: main
         path: helm/release-notes
         helm:

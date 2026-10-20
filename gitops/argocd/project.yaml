@@ -10,7 +10,7 @@ metadata:
 spec:
   description: Release Notes service, one Application per environment
   sourceRepos:
-    - http://git-server.git.svc.cluster.local/release-notes.git
+    - https://github.com/mendelsabb/release-notes-devops.git
   destinations:
     - { server: https://kubernetes.default.svc, namespace: dev }
     - { server: https://kubernetes.default.svc, namespace: prod }

@@ -56,9 +56,13 @@ version_matches_git() {
 running_digest_matches_git() {
   [[ "$(k -n "$1" get deploy release-notes -o jsonpath='{.spec.template.spec.containers[0].image}')" == *"@$(image_field "$1" digest)" ]]
 }
-# Compare with the GitOps repo Argo CD watches (local commits may not be pushed yet).
-mirror_head=$(git ls-remote "$GIT_MIRROR_HOST_URL" "refs/heads/${GITOPS_BRANCH}" | cut -f1)
-argo_healthy() { [[ "$(app_status "$1")" == "Synced/Healthy" && "$(app_synced_revision "$1")" == "$mirror_head" ]]; }
+# Compare with the repository Argo CD watches (local commits may not be pushed yet).
+if [[ "$(gitops_mode)" == local ]]; then
+  repo_head=$(git ls-remote "$GIT_MIRROR_HOST_URL" "refs/heads/${GITOPS_BRANCH}" | cut -f1)
+else
+  repo_head=$(git ls-remote origin "refs/heads/${GITOPS_BRANCH}" | cut -f1)
+fi
+argo_healthy() { [[ "$(app_status "$1")" == "Synced/Healthy" && "$(app_synced_revision "$1")" == "$repo_head" ]]; }
 pvc_bound() { [[ "$(k -n "$1" get pvc data-release-notes-db-0 -o jsonpath='{.status.phase}')" == Bound ]]; }
 replicas_ok() {
   local want=$2

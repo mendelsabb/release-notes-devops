@@ -7,6 +7,8 @@
 #   - `make rollback ENV=prod` restores the last good version
 source "$(dirname "$0")/../lib.sh"
 require_cluster
+[[ "$(gitops_mode)" == local ]] ||
+  die "The failed-rollout drill currently needs a locally built image: run it with GITOPS_MODE=local"
 
 good=$(image_field prod version)
 bad="${good}-unready"

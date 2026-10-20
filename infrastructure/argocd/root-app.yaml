@@ -2,6 +2,10 @@
 # app-of-apps. It syncs gitops/argocd/ (AppProject + ApplicationSet), and the
 # ApplicationSet creates one Application per environment. From here on, every
 # change to what runs in the cluster goes through Git.
+#
+# REPO_URL is filled in by scripts/up.sh: your GitHub origin (default) or the
+# in-cluster mirror (GITOPS_MODE=local). The patches point the AppProject and
+# ApplicationSet at the same repository, so a fork needs no file edits.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -10,9 +14,24 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: http://git-server.git.svc.cluster.local/release-notes.git
+    repoURL: REPO_URL
     targetRevision: main
     path: gitops/argocd
+    kustomize:
+      patches:
+        - target: { kind: ApplicationSet, name: release-notes }
+          patch: |-
+            - op: replace
+              path: /spec/generators/0/git/repoURL
+              value: REPO_URL
+            - op: replace
+              path: /spec/template/spec/source/repoURL
+              value: REPO_URL
+        - target: { kind: AppProject, name: release-notes }
+          patch: |-
+            - op: replace
+              path: /spec/sourceRepos/0
+              value: REPO_URL
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

@@ -11,7 +11,7 @@ REGISTRY_NAME="kind-registry"
 REGISTRY_PORT="5001"
 IMAGE_REPO="localhost:${REGISTRY_PORT}/release-notes"
 GIT_SERVER_IMAGE="localhost:${REGISTRY_PORT}/git-server:1.0.0"
-# The in-cluster git server is the GitOps source Argo CD watches.
+# local mode: the in-cluster git server is the GitOps source Argo CD watches.
 GIT_MIRROR_REMOTE="cluster-gitops"
 GIT_MIRROR_HOST_URL="http://127.0.0.1:8418/release-notes.git"
 GIT_MIRROR_CLUSTER_URL="http://git-server.git.svc.cluster.local/release-notes.git"
@@ -118,16 +118,118 @@ commit_gitops() {
   ok "Committed: $msg"
 }
 
-# Push the local branch to the in-cluster git server Argo CD watches, then ask
-# Argo CD to re-read the repo now instead of waiting for its polling interval.
+# --- GitOps mode ---------------------------------------------------------------
+# github (default): Argo CD watches the GitHub repository (origin), images come
+#   from GHCR and are built only by CI, and every change is a pull request.
+# local (offline, or no push rights to the repo): Argo CD watches an in-cluster
+#   mirror of this checkout and `make release` builds into the local registry.
+# `make up` records the mode so later commands use the same one.
+MODE_FILE="$ROOT/.local/gitops-mode"
+gitops_mode() {
+  if [[ -n "${GITOPS_MODE:-}" ]]; then
+    echo "$GITOPS_MODE"
+  elif [[ -f "$MODE_FILE" ]]; then
+    cat "$MODE_FILE"
+  else
+    echo github
+  fi
+}
+
+# https clone URL of origin; Argo CD reads the public repository anonymously.
+github_repo_url() {
+  local url
+  url=$(git -C "$ROOT" remote get-url origin 2>/dev/null) || return 1
+  url=${url%.git}
+  url=${url/git@github.com:/https://github.com/}
+  echo "${url}.git"
+}
+github_slug() {
+  local url
+  url=$(github_repo_url)
+  url=${url#https://github.com/}
+  echo "${url%.git}"
+}
+gitops_repo_url() {
+  if [[ "$(gitops_mode)" == local ]]; then echo "$GIT_MIRROR_CLUSTER_URL"; else github_repo_url; fi
+}
+
+# Commit Argo CD should be running: local HEAD (local mode) or origin/main (github).
+desired_revision() {
+  if [[ "$(gitops_mode)" == local ]]; then
+    git -C "$ROOT" rev-parse HEAD
+  else
+    git -C "$ROOT" rev-parse "origin/${GITOPS_BRANCH}"
+  fi
+}
+
+# github mode: start from the latest main so changes are computed on what is deployed.
+sync_main() {
+  [[ "$(gitops_mode)" == github ]] || return 0
+  [[ "$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)" == "$GITOPS_BRANCH" ]] ||
+    die "Switch to the ${GITOPS_BRANCH} branch first (GitOps changes are made from it)"
+  git -C "$ROOT" pull --quiet --rebase --autostash origin "$GITOPS_BRANCH"
+}
+
+_before_merge() {
+  if [[ -n "${GITOPS_BEFORE_MERGE:-}" ]]; then bash -c "$GITOPS_BEFORE_MERGE"; fi
+}
+
+_pr_has_checks() {
+  [[ "$(gh pr view "$1" --json statusCheckRollup --jq '.statusCheckRollup | length')" -gt 0 ]]
+}
+
+# deliver_change <message> <paths...>: make a desired-state change real.
+#   local : commit on the current branch and push it to the in-cluster mirror.
+#   github: commit on a new branch, open a pull request, wait for CI, merge it
+#           (the merge is the approval), then refresh Argo CD.
+# GITOPS_BEFORE_MERGE, if set, is a command run right before the change lands
+# (the rollout demos start their traffic generator there, after CI has passed).
+deliver_change() {
+  local msg=$1
+  shift
+  if [[ "$(gitops_mode)" == local ]]; then
+    commit_gitops "$msg" "$@"
+    _before_merge
+    push_gitops
+    return 0
+  fi
+  require_cmd gh
+  local branch pr
+  branch="gitops/$(date +%Y%m%d-%H%M%S)"
+  git -C "$ROOT" switch --quiet -c "$branch"
+  commit_gitops "$msg" "$@"
+  if [[ "$(git -C "$ROOT" rev-parse HEAD)" == "$(git -C "$ROOT" rev-parse "origin/${GITOPS_BRANCH}")" ]]; then
+    git -C "$ROOT" switch --quiet "$GITOPS_BRANCH"
+    git -C "$ROOT" branch --quiet -D "$branch"
+    return 0
+  fi
+  git -C "$ROOT" push --quiet -u origin "$branch" 2>/dev/null
+  pr=$(gh pr create --repo "$(github_slug)" --base "$GITOPS_BRANCH" --head "$branch" \
+    --title "$msg" --body "Opened by \`make\` ($(basename "$0")). Only desired state changes; Argo CD deploys it after merge.")
+  ok "Opened $pr"
+  log "Waiting for CI on the pull request"
+  wait_until 180 "CI checks to start on $pr" _pr_has_checks "$pr"
+  gh pr checks "$pr" --watch --fail-fast --interval 15 >/dev/null || die "CI failed on $pr; not merging"
+  ok "CI passed"
+  _before_merge
+  gh pr merge "$pr" --squash --delete-branch >/dev/null
+  git -C "$ROOT" switch --quiet "$GITOPS_BRANCH"
+  git -C "$ROOT" branch --quiet -D "$branch" 2>/dev/null || true
+  sync_main
+  ok "Merged $pr ($(git -C "$ROOT" rev-parse --short HEAD) on ${GITOPS_BRANCH})"
+  push_gitops
+}
+
+# Make Argo CD see the latest desired state now instead of at its next poll.
+# local mode also pushes this checkout to the in-cluster mirror first.
 push_gitops() {
-  local branch
-  branch="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
-  git -C "$ROOT" remote get-url "$GIT_MIRROR_REMOTE" >/dev/null 2>&1 ||
-    git -C "$ROOT" remote add "$GIT_MIRROR_REMOTE" "$GIT_MIRROR_HOST_URL"
-  # The mirror is a disposable copy of this checkout, so force is safe here.
-  git -C "$ROOT" push --quiet --force "$GIT_MIRROR_REMOTE" "HEAD:refs/heads/${GITOPS_BRANCH}"
-  ok "Pushed ${branch}@$(git -C "$ROOT" rev-parse --short HEAD) to the in-cluster GitOps repo"
+  if [[ "$(gitops_mode)" == local ]]; then
+    git -C "$ROOT" remote get-url "$GIT_MIRROR_REMOTE" >/dev/null 2>&1 ||
+      git -C "$ROOT" remote add "$GIT_MIRROR_REMOTE" "$GIT_MIRROR_HOST_URL"
+    # The mirror is a disposable copy of this checkout, so force is safe here.
+    git -C "$ROOT" push --quiet --force "$GIT_MIRROR_REMOTE" "HEAD:refs/heads/${GITOPS_BRANCH}"
+    ok "Pushed $(git -C "$ROOT" rev-parse --short HEAD) to the in-cluster GitOps repo"
+  fi
   k -n argocd annotate application release-notes-root \
     argocd.argoproj.io/refresh=normal --overwrite >/dev/null 2>&1 || true
   local env
@@ -141,12 +243,12 @@ push_gitops() {
 # A sync operation that is still retrying keeps using the revision it started
 # with, so a newer commit (e.g. a rollback of a release whose migration fails)
 # would wait for those retries. Terminate such an operation; automated sync then
-# starts a fresh one at the new HEAD. Same effect as `argocd app terminate-op`.
+# starts a fresh one at the new revision. Same effect as `argocd app terminate-op`.
 terminate_stale_sync() {
   local app="release-notes-$1" phase revision
   phase=$(k -n argocd get application "$app" -o jsonpath='{.status.operationState.phase}' 2>/dev/null) || return 0
   revision=$(k -n argocd get application "$app" -o jsonpath='{.status.operationState.operation.sync.revision}')
-  if [[ "$phase" == "Running" && "$revision" != "$(git -C "$ROOT" rev-parse HEAD)" ]]; then
+  if [[ "$phase" == "Running" && "$revision" != "$(desired_revision)" ]]; then
     warn "Terminating in-progress sync of $app at stale revision ${revision:0:7}"
     k -n argocd patch application "$app" --type merge \
       -p '{"status":{"operationState":{"phase":"Terminating"}}}' >/dev/null
@@ -165,12 +267,12 @@ app_synced_revision() {
 
 _app_ready() { [[ "$(app_synced_revision "$1")" == "$2" && "$(app_status "$1")" == "Synced/Healthy" ]]; }
 
-# wait_for_app <env> <timeout>: Argo CD has synced the current HEAD *and* the
-# app is Healthy. "Synced" alone only means manifests were applied.
+# wait_for_app <env> <timeout>: Argo CD has synced the desired revision *and*
+# the app is Healthy. "Synced" alone only means manifests were applied.
 wait_for_app() {
   local env=$1 timeout=${2:-300} head
-  head="$(git -C "$ROOT" rev-parse HEAD)"
-  log "Waiting for Argo CD to sync $env to $(git -C "$ROOT" rev-parse --short HEAD) and report Healthy"
+  head="$(desired_revision)"
+  log "Waiting for Argo CD to sync $env to ${head:0:7} and report Healthy"
   wait_until "$timeout" "Argo CD application release-notes-$env Synced/Healthy at $head" \
     _app_ready "$env" "$head"
   k -n "$env" rollout status deployment/release-notes --timeout=60s >/dev/null

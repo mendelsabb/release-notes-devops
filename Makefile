@@ -43,7 +43,7 @@ demo-rollout: ## Zero-downtime demo: traffic + release a new version + promote t
 demo-broken-rollout: ## Failure demo: an image that never becomes Ready, then rollback
 	@scripts/demo/broken-rollout.sh
 
-demo-pod-kill: ## Failure demo: delete an API pod under traffic
+demo-pod-kill: ## Failure demo: delete an API pod under traffic (CRASH=1: SIGKILL instead)
 	@scripts/demo/pod-kill.sh
 
 demo-db-restart: ## Failure demo: restart Postgres, verify data persists and recovery

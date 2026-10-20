@@ -1,24 +1,35 @@
 #!/usr/bin/env bash
-# App pod termination demo: delete one prod API pod under traffic and verify the
-# Deployment restores the replica count while the others keep serving.
-# FORCE=1 kills the pod without a grace period (no preStop, no drain) to show
-# what an ungraceful crash looks like; some failures are expected then.
+# App pod termination demo under traffic.
+#   default : graceful `kubectl delete pod` (preStop + drain); expect 0 failures and
+#             the Deployment to restore the replica count.
+#   CRASH=1 : SIGKILL the app process from the kind node (an OOM kill/segfault: no
+#             preStop, no drain). A few in-flight/new connections to that pod fail
+#             until the kubelet restarts it; reported, not judged.
 source "$(dirname "$0")/../lib.sh"
 require_cluster
 
 desired=$(k -n prod get deploy release-notes -o jsonpath='{.spec.replicas}')
 victim=$(k -n prod get pods -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')
-max_failures=0
-delete_args=(--wait=false)
-if [[ "${FORCE:-0}" == "1" ]]; then
-  delete_args=(--grace-period=0 --force)
-  max_failures=1000000 # report, do not judge
+
+if [[ "${CRASH:-0}" == "1" ]]; then
+  traffic_start prod 45 --max-failures 1000000 # report, do not judge
+  sleep 10
+  cid=$(k -n prod get pod "$victim" -o jsonpath='{.status.containerStatuses[0].containerID}')
+  node=$(k -n prod get pod "$victim" -o jsonpath='{.spec.nodeName}')
+  pid=$(docker exec "$node" crictl inspect --output go-template --template '{{.info.pid}}' "${cid#containerd://}")
+  log "SIGKILL app process (pid ${pid}) of ${victim}"
+  docker exec "$node" kill -9 "$pid"
+  _restarted() { [[ "$(k -n prod get pod "$victim" -o jsonpath='{.status.containerStatuses[0].ready}')" == "true" ]]; }
+  wait_until 120 "${victim} to be restarted and Ready" _restarted
+  ok "Container restarted by the kubelet: $(k -n prod get pod "$victim" -o jsonpath='{.status.containerStatuses[0].restartCount}') restart(s)"
+  traffic_wait prod
+  exit 0
 fi
 
-traffic_start prod 60 --max-failures "$max_failures"
+traffic_start prod 60
 sleep 10
-log "Deleting pod ${victim} (${desired} desired replicas) ${FORCE:+[FORCE]}"
-k -n prod delete pod "$victim" "${delete_args[@]}"
+log "Deleting pod ${victim} (${desired} desired replicas)"
+k -n prod delete pod "$victim" --wait=false
 
 _restored() {
   [[ "$(k -n prod get deploy release-notes -o jsonpath='{.status.availableReplicas}')" == "$desired" &&

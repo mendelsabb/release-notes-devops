@@ -43,7 +43,9 @@ spec:
         app.kubernetes.io/component: database
     spec:
       automountServiceAccountToken: false
-      # Postgres "fast" shutdown checkpoints quickly; leave room for it.
+      # The image's STOPSIGNAL is SIGINT, which containerd honours: Postgres does a
+      # "fast" shutdown (abort sessions, checkpoint) instead of SIGTERM's "smart"
+      # shutdown that waits for clients. Verified: logs "received fast shutdown request".
       terminationGracePeriodSeconds: 60
       securityContext:
         # uid/gid 70 = postgres user in the alpine image.
@@ -88,12 +90,6 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
-          lifecycle:
-            preStop:
-              # SIGTERM means "smart" shutdown (waits for clients to leave);
-              # request a fast shutdown so termination is bounded.
-              exec:
-                command: ["sh", "-c", "pg_ctl stop -D \"$PGDATA\" -m fast -t 50"]
           resources:
             {{- toYaml .Values.database.resources | nindent 12 }}
           securityContext:

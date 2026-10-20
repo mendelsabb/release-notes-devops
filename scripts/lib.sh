@@ -16,7 +16,13 @@ GIT_MIRROR_REMOTE="cluster-gitops"
 GIT_MIRROR_HOST_URL="http://127.0.0.1:8418/release-notes.git"
 GIT_MIRROR_CLUSTER_URL="http://git-server.git.svc.cluster.local/release-notes.git"
 GITOPS_BRANCH="main"
-ENVIRONMENTS=(dev prod)
+# Environments are the folders in gitops/environments/ - the same list the Argo CD
+# ApplicationSet generates apps from, so the scripts can never disagree with it.
+ENVIRONMENTS=()
+for _env_dir in "$ROOT"/gitops/environments/*/; do
+  ENVIRONMENTS+=("$(basename "$_env_dir")")
+done
+unset _env_dir
 
 # --- output -------------------------------------------------------------------
 if [[ -t 1 ]]; then

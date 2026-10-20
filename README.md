@@ -13,7 +13,8 @@ downtime.
   the previous digest.
 
 Trade-offs and limitations are in [DECISIONS.md](DECISIONS.md). What was actually executed, with
-numbers, is in [docs/verification.md](docs/verification.md).
+numbers, is in [docs/verification.md](docs/verification.md). Day-to-day tasks (adding an
+environment, schema changes, troubleshooting) are in [docs/operations.md](docs/operations.md).
 
 ## Architecture
 

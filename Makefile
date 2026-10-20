@@ -23,7 +23,7 @@ status: ## Show Argo CD, workload and endpoint status
 
 ##@ Delivery (GitOps: every change below is a git commit Argo CD reconciles)
 .PHONY: release promote rollback
-release: ## Build VERSION=x.y.z, push to the local registry, deploy to dev
+release: ## Release VERSION=x.y.z to dev (github: version-bump PR, CI builds; local: local build)
 	@scripts/release.sh "$(VERSION)"
 
 promote: ## Promote the exact image digest running in dev to prod

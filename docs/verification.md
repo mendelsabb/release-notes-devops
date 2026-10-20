@@ -99,6 +99,8 @@ After switching to a root app + ApplicationSet and pointing Argo CD at the GitHu
 | `make demo-rollout` (PR #4 release 1.2.0 → CI → dev; PR #5 promote) | prod 1.0.0 → 1.2.0 under traffic: **0 of 6,004 requests failed**; 1.0.0 last seen at 38 s, 1.2.0 first seen at 28 s |
 | `make demo-broken-rollout` (CI fault image, PR #6 to prod, PR #7 rollback) | new pod never Ready, ProgressDeadlineExceeded, Argo CD `Synced/Degraded`, rollback Healthy: **0 of 24,001 requests failed** over 10 min |
 | `make e2e` in GitHub mode | 38/38 |
+| Add an environment (runbook, PR #8) | `staging` folder + namespace + AppProject entry → ApplicationSet created `release-notes-staging`, Synced/Healthy in about 50 s, API and its own DB working |
+| Remove an environment (runbook, PR #9) | Application deleted in about 10 s, workloads kept (preserveResourcesOnDeletion) until `kubectl delete namespace staging` |
 
 ## Not verified
 

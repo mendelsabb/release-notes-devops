@@ -59,6 +59,10 @@ file automation changes). So:
   dev's exact digest, or a rollback);
 - a new environment is a new folder (plus its namespace in the AppProject).
 
+![GitOps delivery: root app → ApplicationSet → one Application per environment folder](docs/gitops-architecture.png)
+
+*Source: [docs/gitops-architecture.drawio](docs/gitops-architecture.drawio) (open with draw.io / diagrams.net).*
+
 | Mode | Argo CD watches | Images | `make release / promote / rollback` |
 |---|---|---|---|
 | **github** (default) | the GitHub repo (`origin`) | GHCR, built only by CI | open a pull request, wait for CI, merge, wait for Argo CD |

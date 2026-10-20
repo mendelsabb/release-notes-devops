@@ -11,7 +11,7 @@ else
   ok "No kind cluster '$CLUSTER_NAME'"
 fi
 if [[ "${1:-}" == "--registry" ]]; then
-  docker rm -f "$REGISTRY_NAME" >/dev/null 2>&1 && ok "Removed local registry" || true
+  if docker rm -f "$REGISTRY_NAME" >/dev/null 2>&1; then ok "Removed local registry"; fi
   docker volume rm kind-registry-data >/dev/null 2>&1 || true
   git -C "$ROOT" remote remove "$GIT_MIRROR_REMOTE" 2>/dev/null || true
 fi

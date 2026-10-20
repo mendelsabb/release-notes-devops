@@ -37,7 +37,8 @@ loki_has_logs() { [[ "$(loki_count "$1")" -gt 0 ]]; }
 loki_has_no_logs() { [[ "$(loki_count "$1")" == 0 ]]; }
 
 api_roundtrip() {
-  local port=$1 v="e2e-$(date +%s)-$RANDOM"
+  local port=$1 v
+  v="e2e-$(date +%s)-$RANDOM"
   [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${port}/api/releases" \
     -H 'Content-Type: application/json' -d "{\"version\":\"$v\",\"description\":\"e2e check\"}")" == 201 ]] &&
     curl -fsS "http://127.0.0.1:${port}/api/releases?limit=200" | grep -q "\"$v\"" &&

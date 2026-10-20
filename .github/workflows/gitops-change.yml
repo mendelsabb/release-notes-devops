@@ -1,0 +1,81 @@
+# Controlled changes to prod desired state, always as a reviewed pull request:
+#   promote  - copy the exact dev image digest to prod (build once, deploy many)
+#   rollback - restore the previous image of an environment from git history
+# Uses the same scripts as the local workflow (scripts/promote.sh, rollback.sh).
+name: GitOps change
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: promote (dev -> prod) or rollback
+        type: choice
+        options: [promote, rollback]
+        required: true
+      environment:
+        description: Environment to roll back (ignored for promote)
+        type: choice
+        options: [prod, dev]
+        default: prod
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: gitops-change
+  cancel-in-progress: false
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # rollback walks the history of image.yaml
+      - name: Prepare change
+        id: change
+        env:
+          ACTION: ${{ inputs.action }}
+          TARGET_ENV: ${{ inputs.environment }}
+          GITOPS_ONLY: "1"
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          before=$(git rev-parse HEAD)
+          if [[ "$ACTION" == promote ]]; then
+            scripts/promote.sh
+            env_name=prod
+          else
+            scripts/rollback.sh "$TARGET_ENV"
+            env_name=$TARGET_ENV
+          fi
+          if [[ "$(git rev-parse HEAD)" == "$before" ]]; then
+            echo "Nothing to change." >> "$GITHUB_STEP_SUMMARY"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "changed=true"
+            echo "branch=gitops/${ACTION}-${env_name}-$(git rev-parse --short HEAD)"
+            echo "title=$(git log -1 --format=%s)"
+          } >> "$GITHUB_OUTPUT"
+      - name: Open pull request
+        if: steps.change.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.change.outputs.branch }}
+          TITLE: ${{ steps.change.outputs.title }}
+        run: |
+          git push origin "HEAD:refs/heads/${BRANCH}"
+          gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$(cat <<EOF
+          Automated GitOps change requested by @${GITHUB_ACTOR} via the *GitOps change* workflow.
+
+          \`\`\`diff
+          $(git show --format= HEAD)
+          \`\`\`
+
+          Only the image reference changes. On merge, Argo CD syncs the environment.
+          Before merging a promotion, confirm in Argo CD that \`release-notes-dev\` is **Synced/Healthy** on this digest.
+          EOF
+          )"

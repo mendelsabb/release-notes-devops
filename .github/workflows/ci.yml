@@ -1,0 +1,202 @@
+# CI for every change; on main it also publishes the image and deploys it to dev
+# by committing the new digest to gitops/environments/dev/image.yaml (GitOps:
+# Argo CD pulls the change, the pipeline never talks to a cluster).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    # Deploy commits only change desired state; they must not rebuild the image.
+    paths-ignore:
+      - "gitops/environments/*/image.yaml"
+      - "**.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  HELM_VERSION: v4.1.1
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Ruff (lint + format)
+        run: |
+          uv run ruff check --output-format=github .
+          uv run ruff format --check .
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh scripts/demo/*.sh
+      - name: Hadolint
+        run: docker run --rm -i hadolint/hadolint:v2.12.0 < Dockerfile
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: release_notes_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d release_notes_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - run: uv sync --frozen
+      - name: Unit, integration (Postgres + Alembic) and chart tests
+        env:
+          REQUIRE_DB: "1" # integration tests must fail, not skip, without a DB
+          TEST_DATABASE_URL: postgresql+psycopg://test:test@localhost:5432/release_notes_test
+        run: uv run pytest --junitxml=pytest.xml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: pytest-results
+          path: pytest.xml
+
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Helm lint/template (dev, prod) + kubeconform
+        run: scripts/validate-manifests.sh
+      - name: Trivy misconfiguration scan (rendered manifests, Dockerfile)
+        run: |
+          for target in .local/rendered Dockerfile; do
+            docker run --rm -v "$PWD:/src:ro" aquasec/trivy:0.67.2 config \
+              --quiet --severity HIGH,CRITICAL --exit-code 1 "/src/$target"
+          done
+
+  build:
+    needs: [lint, test, validate]
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: meta
+        name: Version and immutable tag
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          echo "app_version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${version}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build (amd64) for testing
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: release-notes:${{ steps.meta.outputs.tag }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.app_version }}
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test the image
+        env:
+          IMAGE: release-notes:${{ steps.meta.outputs.tag }}
+        run: |
+          docker run -d --name smoke --read-only --tmpfs /tmp --cap-drop ALL \
+            -e DATABASE_URL=postgresql+psycopg://x:y@127.0.0.1:1/none -p 8000:8000 "$IMAGE"
+          for _ in $(seq 1 20); do curl -fsS localhost:8000/health && break; sleep 1; done
+          curl -fsS localhost:8000/version | grep -q '"version":"${{ steps.meta.outputs.app_version }}"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8000/ready)" = 503  # no DB here
+          docker exec smoke id -u | grep -qx 10001
+          docker run --rm --entrypoint alembic "$IMAGE" history | grep -q '(head)'
+          docker logs smoke | head -3
+          docker rm -f smoke
+      - name: Trivy vulnerability scan (fail on fixable HIGH/CRITICAL)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.67.2 image \
+            --quiet --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            release-notes:${{ steps.meta.outputs.tag }}
+
+  publish:
+    # Only after every check passed, only for main.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # commit the dev image digest
+      packages: write # push to GHCR
+    concurrency:
+      group: deploy-dev # serialise digest commits
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: names
+        run: |
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/release-notes" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ needs.build.outputs.version }}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: push
+        name: Build multi-arch and push (layers come from the build job's cache)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ steps.names.outputs.image }}:${{ steps.names.outputs.tag }}
+            ${{ steps.names.outputs.image }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          build-args: |
+            APP_VERSION=${{ needs.build.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+      - name: Deploy to dev (commit digest to GitOps desired state)
+        env:
+          IMAGE: ${{ steps.names.outputs.image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          source scripts/lib.sh
+          write_image_file dev "$IMAGE" "$DIGEST" "$RELEASE_VERSION"
+          commit_gitops "deploy(dev): release-notes ${RELEASE_VERSION} (${DIGEST:7:12}) [ci]" "$(image_file dev)"
+          # Commits pushed with GITHUB_TOKEN do not trigger workflows: no CI loop.
+          for attempt in 1 2 3; do
+            git pull --rebase --quiet origin main && git push origin HEAD:main && break
+            echo "push raced with another commit (attempt $attempt), retrying"
+          done
+          {
+            echo "### Deployed to dev"
+            echo "- image: \`${IMAGE}@${DIGEST}\`"
+            echo "- version: ${RELEASE_VERSION}"
+            echo "- promote to prod: run the **GitOps change** workflow (action: promote)"
+          } >> "$GITHUB_STEP_SUMMARY"

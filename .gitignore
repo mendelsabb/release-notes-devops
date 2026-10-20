@@ -5,8 +5,9 @@ __pycache__/
 .ruff_cache/
 .DS_Store
 /.local/
-*.env
-.env*
+# Local secrets (infrastructure/versions.env is config, not a secret)
+.env
+.env.*
 
 # Assignment brief (not ours to publish)
 *.pdf

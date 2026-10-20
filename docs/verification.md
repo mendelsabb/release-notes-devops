@@ -67,11 +67,24 @@ pod are counted too.
 8. Postgres `preStop: pg_ctl stop` was redundant: containerd honours the image's `STOPSIGNAL SIGINT`
    (verified: "received fast shutdown request").
 
+## GitHub Actions (github.com/mendelsabb/release-notes-devops)
+
+| Step | Result |
+|---|---|
+| First push run | lint failed: the runner's older shellcheck reports SC2317/SC2015 where the local version didn't → fixed |
+| CI on `main` ([run](https://github.com/mendelsabb/release-notes-devops/actions/runs/39455835943)) | lint, test (Postgres service), validate, build (smoke + Trivy) and publish all green, 3 min 41 s |
+| publish | multi-arch image (amd64 + arm64, SBOM + provenance) at `ghcr.io/mendelsabb/release-notes@sha256:2139c4f2…`; anonymous pull works (public package) |
+| Digest commit | `github-actions[bot]: deploy(dev): release-notes 1.0.0 (2139c4f2e75b) [ci]` on `main`; it did **not** trigger another CI run |
+| Local dev from GHCR | `git pull` + push to the in-cluster mirror → Argo CD deployed the GHCR digest; `/version` reports the CI-built commit |
+| GitOps change: promote ([run](https://github.com/mendelsabb/release-notes-devops/actions/runs/39456505149)) | opened PR #1 changing only `gitops/environments/prod/image.yaml` to dev's digest |
+| Merge PR #1 → prod | Argo CD rolled prod to the GHCR image under traffic: **0 of 3,601 requests failed** |
+
+Observed limitation: a pull request opened with `GITHUB_TOKEN` gets a CI run with no jobs (GitHub does
+not run workflows for events created by `GITHUB_TOKEN`), so the promotion PR shows a failed/empty
+check. The change it carries (one digest) was already built and tested on `main`. A GitHub App token
+would give these PRs real CI.
+
 ## Not verified
 
-- **GitHub Actions on GitHub.** The workflows pass actionlint and their shell logic was executed
-  locally, but they have not run on GitHub: no repository was created or pushed for this
-  submission. In particular, GHCR publishing, multi-arch builds, `gh pr create` permissions and the
-  `GITHUB_TOKEN` push to `main` are unverified.
-- Argo CD tracking a hosted GitHub repo (`repoURL` change) was not exercised; the in-cluster mirror
-  was.
+- Argo CD tracking the hosted GitHub repo directly (`repoURL` change) was not exercised; the
+  in-cluster mirror was, fed from the GitHub `main` branch.

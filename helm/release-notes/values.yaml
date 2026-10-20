@@ -1,11 +1,15 @@
-# Defaults shared by every environment. Per-environment overrides live in
-# gitops/environments/<env>/values.yaml; the image lives in .../image.yaml.
+# Defaults shared by every environment. The chart is environment-neutral:
+# every environment must say who it is in gitops/environments/<env>/values.yaml
+# and which image it runs in gitops/environments/<env>/image.yaml. Rendering
+# without them fails instead of silently deploying "dev" defaults.
 
-environment: dev
+# Required: dev, prod, ...
+environment: ""
 logLevel: INFO
 
 image:
-  repository: localhost:5001/release-notes
+  # Required, set by image.yaml (e.g. ghcr.io/<owner>/release-notes).
+  repository: ""
   # Prefer digest (immutable). tag is a fallback for ad-hoc use.
   digest: ""
   tag: ""

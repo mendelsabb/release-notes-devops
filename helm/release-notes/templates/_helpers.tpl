@@ -6,7 +6,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/part-of: release-notes
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
-environment: {{ .Values.environment }}
+environment: {{ required "environment must be set (gitops/environments/<env>/values.yaml)" .Values.environment }}
 {{- end }}
 
 {{- define "release-notes.selectorLabels" -}}
@@ -16,6 +16,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/* Immutable digest reference when available, tag otherwise. */}}
 {{- define "release-notes.image" -}}
+{{- $_ := required "image.repository must be set (gitops/environments/<env>/image.yaml)" .Values.image.repository -}}
 {{- if .Values.image.digest -}}
 {{ .Values.image.repository }}@{{ .Values.image.digest }}
 {{- else if .Values.image.tag -}}

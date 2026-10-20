@@ -134,9 +134,17 @@ def test_prod_environment():
     assert objs[("ConfigMap", "release-notes-config")]["data"]["LOG_LEVEL"] == "INFO"
 
 
+def test_chart_defaults_are_not_an_environment():
+    # Rendering the bare chart must fail: no silent "dev" defaults in prod.
+    result = subprocess.run(["helm", "template", "x", str(CHART)], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "environment must be set" in result.stderr
+
+
 def test_rendering_fails_without_an_image():
     result = subprocess.run(
-        ["helm", "template", "x", str(CHART), "--set", "image.digest=", "--set", "image.tag="],
+        ["helm", "template", "x", str(CHART), "--set", "environment=test",
+         "--set", "image.repository=registry/app", "--set", "image.digest=", "--set", "image.tag="],
         capture_output=True, text=True,
     )  # fmt: skip
     assert result.returncode != 0

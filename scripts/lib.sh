@@ -79,7 +79,7 @@ build_and_push() {
 
 # registry_digest <name> <tag> -> manifest digest as stored in the local registry
 registry_digest() {
-  curl -fsS -o /dev/null -D - \
+  curl -fs -o /dev/null -D - \
     -H "Accept: application/vnd.oci.image.index.v1+json" \
     -H "Accept: application/vnd.oci.image.manifest.v1+json" \
     -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
@@ -161,13 +161,14 @@ app_synced_revision() {
   k -n argocd get application "release-notes-$1" -o jsonpath='{.status.sync.revision}' 2>/dev/null
 }
 
+_app_ready() { [[ "$(app_synced_revision "$1")" == "$2" && "$(app_status "$1")" == "Synced/Healthy" ]]; }
+
 # wait_for_app <env> <timeout>: Argo CD has synced the current HEAD *and* the
 # app is Healthy. "Synced" alone only means manifests were applied.
 wait_for_app() {
   local env=$1 timeout=${2:-300} head
   head="$(git -C "$ROOT" rev-parse HEAD)"
   log "Waiting for Argo CD to sync $env to $(git -C "$ROOT" rev-parse --short HEAD) and report Healthy"
-  _app_ready() { [[ "$(app_synced_revision "$1")" == "$2" && "$(app_status "$1")" == "Synced/Healthy" ]]; }
   wait_until "$timeout" "Argo CD application release-notes-$env Synced/Healthy at $head" \
     _app_ready "$env" "$head"
   k -n "$env" rollout status deployment/release-notes --timeout=60s >/dev/null

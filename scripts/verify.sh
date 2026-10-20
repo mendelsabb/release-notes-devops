@@ -62,7 +62,15 @@ if [[ "$(gitops_mode)" == local ]]; then
 else
   repo_head=$(git ls-remote origin "refs/heads/${GITOPS_BRANCH}" | cut -f1)
 fi
-argo_healthy() { [[ "$(app_status "$1")" == "Synced/Healthy" && "$(app_synced_revision "$1")" == "$repo_head" ]]; }
+# Argo CD polls the repo; after a recent push give it up to 2 minutes to catch up.
+argo_healthy() {
+  local deadline=$((SECONDS + 120))
+  until [[ "$(app_status "$1")" == "Synced/Healthy" && "$(app_synced_revision "$1")" == "$repo_head" ]]; do
+    ((SECONDS < deadline)) || return 1
+    sleep 3
+  done
+}
+push_gitops >/dev/null # ask Argo CD to re-read the repo now
 pvc_bound() { [[ "$(k -n "$1" get pvc data-release-notes-db-0 -o jsonpath='{.status.phase}')" == Bound ]]; }
 replicas_ok() {
   local want=$2

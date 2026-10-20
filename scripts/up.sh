@@ -152,14 +152,13 @@ ensure_git_server() {
 
 # True if the image an environment points at can be pulled by the cluster.
 image_available() {
-  local repo digest version ref
+  local repo digest
   repo=$(image_field "$1" repository)
   digest=$(image_field "$1" digest)
-  version=$(image_field "$1" version)
-  ref=${digest:-$version}
-  [[ -n "$ref" ]] || return 1
+  # Only an immutable digest counts: a tag could point at a stale build.
+  [[ "$digest" == sha256:* ]] || return 1
   if [[ "$repo" == "localhost:${REGISTRY_PORT}/"* ]]; then
-    [[ -n "$(registry_digest "${repo#*/}" "$ref")" ]]
+    [[ -n "$(registry_digest "${repo#*/}" "$digest")" ]]
   else
     docker manifest inspect "${repo}@${digest}" >/dev/null 2>&1
   fi

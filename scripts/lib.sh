@@ -163,3 +163,77 @@ served_version() {
   k -n "$1" exec deploy/release-notes -- python -c \
     "import json,urllib.request;print(json.load(urllib.request.urlopen('http://release-notes/version',timeout=5))['version'])"
 }
+
+# --- in-cluster traffic generator ----------------------------------------------
+TRAFFIC_IMAGE="python:3.12.15-slim"
+
+# traffic_start <env> <duration> [extra traffic.py args...]: starts the Job, returns immediately.
+traffic_start() {
+  local env=$1 duration=$2
+  shift 2
+  local args=("--url" "http://release-notes.${env}.svc.cluster.local/api/releases?limit=5"
+    "--duration" "$duration" "$@")
+  k -n "$env" delete job traffic --ignore-not-found --wait=true >/dev/null
+  k -n "$env" create configmap traffic-script --from-file="$ROOT/scripts/traffic/traffic.py" \
+    --dry-run=client -o yaml | k apply -f - >/dev/null
+  local arg_json="" a
+  for a in "${args[@]}"; do arg_json+="\"${a}\", "; done
+  k -n "$env" apply -f - >/dev/null <<EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: traffic
+  labels: { app.kubernetes.io/name: traffic-generator }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: traffic-generator }
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: traffic
+          image: ${TRAFFIC_IMAGE}
+          command: ["python", "-u", "/scripts/traffic.py", ${arg_json%, }]
+          env: [{ name: PYTHONDONTWRITEBYTECODE, value: "1" }]
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { cpu: "1", memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts: [{ name: script, mountPath: /scripts }]
+      volumes:
+        - name: script
+          configMap: { name: traffic-script }
+EOF
+  wait_until 120 "traffic generator pod to start in $env" _traffic_running "$env"
+  ok "Traffic generator running in $env for ${duration}s"
+}
+
+_traffic_running() {
+  [[ -n "$(k -n "$1" get pods -l job-name=traffic \
+    -o jsonpath='{.items[0].status.containerStatuses[0].state.running}' 2>/dev/null)" ]]
+}
+
+_traffic_done() {
+  [[ -n "$(k -n "$1" get job traffic -o jsonpath='{.status.succeeded}{.status.failed}' 2>/dev/null)" ]]
+}
+
+# traffic_wait <env>: block until the Job finishes, show its output, return its verdict.
+traffic_wait() {
+  local env=$1
+  wait_until 900 "traffic generator in $env to finish" _traffic_done "$env"
+  mkdir -p "$ROOT/.local"
+  k -n "$env" logs job/traffic >"$ROOT/.local/traffic-${env}.log"
+  grep -v '^SUMMARY ' "$ROOT/.local/traffic-${env}.log"
+  sed -n 's/^SUMMARY //p' "$ROOT/.local/traffic-${env}.log" >"$ROOT/.local/traffic-${env}.json"
+  [[ "$(k -n "$env" get job traffic -o jsonpath='{.status.succeeded}')" == "1" ]]
+}

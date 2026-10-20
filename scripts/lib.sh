@@ -187,7 +187,7 @@ _serves_version() { [[ "$(served_version "$1" 2>/dev/null)" == "$2" ]]; }
 # Right after a rollout an old pod may still be in its preStop window and
 # kube-proxy may route to it briefly, so poll instead of sampling once.
 wait_for_version() {
-  wait_until 60 "$1 Service to serve version $2 (now: $(served_version "$1" 2>/dev/null))" _serves_version "$1" "$2"
+  wait_until 60 "$1 Service to serve version $2" _serves_version "$1" "$2"
   ok "$1 is serving release-notes $2"
 }
 

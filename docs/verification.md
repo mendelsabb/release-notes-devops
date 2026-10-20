@@ -1,8 +1,7 @@
 # Verification record
 
-Everything below was executed on **2026-10-20** on a MacBook (Apple silicon, 10 CPUs). Docker
-Desktop 29.4 had 8 GB of RAM. The stack ran on kind 0.33 with Kubernetes 1.35.1, Helm 4.1.1 and
-Argo CD 3.5 (chart 10.10.5). Unless noted, the numbers come from the final run in a **fresh clone**
+Everything below was executed on **2026-10-20** with Docker 29.4, kind 0.33 (Kubernetes 1.35.1),
+Helm 4.1.1 and Argo CD 3.5 (chart 10.10.5), within the resources listed in the README. Unless noted, the numbers come from the final run in a **fresh clone**
 after `make clean` (no cluster, no registry), which is what a reviewer would do. Earlier runs during
 development gave the same results within the ranges shown.
 

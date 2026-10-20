@@ -34,6 +34,4 @@ push_gitops
 
 [[ "${NO_WAIT:-0}" == "1" ]] && exit 0
 wait_for_app prod 300
-actual="$(served_version prod)"
-[[ "$actual" == "$version" ]] || die "prod Service reports version $actual, expected $version"
-ok "prod is serving release-notes $version"
+wait_for_version prod "$version"

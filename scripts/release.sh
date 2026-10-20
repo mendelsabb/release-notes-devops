@@ -30,6 +30,4 @@ push_gitops
 
 if [[ "${NO_WAIT:-0}" == "1" ]]; then exit 0; fi
 wait_for_app "$env" 300
-actual="$(served_version "$env")"
-[[ "$actual" == "$version" ]] || die "$env Service reports version $actual, expected $version"
-ok "$env is serving release-notes $version"
+wait_for_version "$env" "$version"

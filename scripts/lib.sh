@@ -181,6 +181,16 @@ served_version() {
     "import json,urllib.request;print(json.load(urllib.request.urlopen('http://release-notes/version',timeout=5))['version'])"
 }
 
+_serves_version() { [[ "$(served_version "$1" 2>/dev/null)" == "$2" ]]; }
+
+# wait_for_version <env> <version>: the Service converges on the new version.
+# Right after a rollout an old pod may still be in its preStop window and
+# kube-proxy may route to it briefly, so poll instead of sampling once.
+wait_for_version() {
+  wait_until 60 "$1 Service to serve version $2 (now: $(served_version "$1" 2>/dev/null))" _serves_version "$1" "$2"
+  ok "$1 is serving release-notes $2"
+}
+
 # --- in-cluster traffic generator ----------------------------------------------
 TRAFFIC_IMAGE="python:3.12.15-slim"
 

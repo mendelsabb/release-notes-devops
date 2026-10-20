@@ -12,6 +12,13 @@ on:
       - "gitops/environments/*/image.yaml"
       - "**.md"
   workflow_dispatch:
+    inputs:
+      simulate_unready:
+        description: >-
+          Failed-rollout drill: build an image whose /ready always fails and publish it
+          as <version>-unready-<sha> without deploying it (scripts/demo/broken-rollout.sh)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,6 +29,8 @@ concurrency:
 
 env:
   HELM_VERSION: v4.1.1
+  # Only ever true for a manual drill run; normal pushes and PRs build the real image.
+  FAULT: ${{ inputs.simulate_unready && 'true' || 'false' }}
 
 jobs:
   lint:
@@ -97,14 +106,17 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.meta.outputs.app_version }}
+      tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: meta
         name: Version and immutable tag
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          suffix=""
+          [[ "$FAULT" == true ]] && suffix="-unready"
           echo "app_version=${version}" >> "$GITHUB_OUTPUT"
-          echo "tag=${version}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "tag=${version}${suffix}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build (amd64) for testing
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -115,6 +127,7 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.meta.outputs.app_version }}
             GIT_SHA=${{ github.sha }}
+            SIMULATE_UNREADY=${{ env.FAULT }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Smoke test the image
@@ -150,9 +163,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: names
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
         run: |
-          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/release-notes" >> "$GITHUB_OUTPUT"
-          echo "tag=${{ needs.build.outputs.version }}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/release-notes"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tags<<EOF"
+            echo "${image}:${TAG}"
+            # The fault image must never take the commit's canonical sha- tag.
+            [[ "$FAULT" == true ]] || echo "${image}:sha-${GITHUB_SHA}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -167,18 +189,23 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ steps.names.outputs.image }}:${{ steps.names.outputs.tag }}
-            ${{ steps.names.outputs.image }}:sha-${{ github.sha }}
+          tags: ${{ steps.names.outputs.tags }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           build-args: |
             APP_VERSION=${{ needs.build.outputs.version }}
             GIT_SHA=${{ github.sha }}
+            SIMULATE_UNREADY=${{ env.FAULT }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha
+      - name: Fault image published (not deployed)
+        if: env.FAULT == 'true'
+        run: |
+          echo "### Fault-injection image (not deployed)" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.names.outputs.image }}@${{ steps.push.outputs.digest }}\` (tag \`${{ needs.build.outputs.tag }}\`)" >> "$GITHUB_STEP_SUMMARY"
       - name: Deploy to dev (commit digest to GitOps desired state)
+        if: env.FAULT != 'true'
         env:
           IMAGE: ${{ steps.names.outputs.image }}
           DIGEST: ${{ steps.push.outputs.digest }}

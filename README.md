@@ -175,7 +175,8 @@ schema. Data is never rolled back; that would be a restore from backup.
   dev's digest to prod or rolls an environment back. It reuses `scripts/promote.sh` /
   `scripts/rollback.sh` with `GITOPS_ONLY=1`. Merging the PR is the approval, and Argo CD deploys.
 
-Repository settings this needs: Actions allowed to *create pull requests* and to write
+Verified on [github.com/mendelsabb/release-notes-devops](https://github.com/mendelsabb/release-notes-devops/actions)
+(runs linked in [docs/verification.md](docs/verification.md)). Repository settings this needs: Actions allowed to *create pull requests* and to write
 `contents`/`packages`. The GHCR package must be **public** (or the cluster needs an
 `imagePullSecret`). If `main` is protected against direct pushes, change the dev step to open a PR
 as well. To have Argo CD track GitHub instead of the local mirror, change `repoURL` (and
@@ -284,8 +285,8 @@ make clean   # also removes the local registry container + its volume and the gi
 - No TLS, Ingress, alerting rules or SLOs. Grafana allows anonymous read-only viewing on localhost.
 - The in-cluster git server accepts anonymous pushes. It's reachable only from inside the cluster and
   from `127.0.0.1`.
-- The GitHub workflows are validated with actionlint and their shell logic is exercised locally, but
-  they have **not been run on GitHub** for this submission (see docs/verification.md).
+- Promotion and rollback PRs are opened with `GITHUB_TOKEN`, so GitHub does not run CI on them (the
+  digest was already built and tested on `main`). A GitHub App token would fix that.
 
 ## Troubleshooting
 

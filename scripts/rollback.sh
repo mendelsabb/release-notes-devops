@@ -4,12 +4,13 @@
 # version at [git-rev]) as a new commit; Argo CD reconciles it. Only the image
 # reference changes - config changes made since are kept. Database schema and
 # data are NOT rolled back (migrations are additive / backward compatible).
+# GITOPS_ONLY=1 (used by CI): only write + commit; no cluster, push or wait.
 source "$(dirname "$0")/lib.sh"
 
 env=${1:-prod}
 rev=${2:-${TO:-}}
 valid_env "$env"
-require_cluster
+[[ "${GITOPS_ONLY:-0}" == "1" ]] || require_cluster
 file="$(image_file "$env")"
 rel="${file#"$ROOT"/}"
 current=$(image_field "$env" digest)
@@ -31,6 +32,7 @@ target_version=$(image_field "$env" version)
 target_digest=$(image_field "$env" digest)
 log "Rolling $env back from $(git -C "$ROOT" show "HEAD:${rel}" | sed -n 's/^  version: *"\(.*\)"$/\1/p') to ${target_version} (${target_digest:7:12}, from $(git -C "$ROOT" rev-parse --short "$rev"))"
 commit_gitops "rollback($env): release-notes ${target_version} (${target_digest:7:12})" "$file"
+[[ "${GITOPS_ONLY:-0}" == "1" ]] && exit 0
 push_gitops
 
 if [[ "${NO_WAIT:-0}" == "1" ]]; then exit 0; fi

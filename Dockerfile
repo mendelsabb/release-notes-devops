@@ -28,7 +28,14 @@ LABEL org.opencontainers.image.title="release-notes" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}"
 
-RUN groupadd --system --gid 10001 app \
+# libpq from Debian (patched with the OS) instead of the psycopg[binary] wheel,
+# which vendors its own libpq/OpenSSL/pcre2 that OS updates never reach.
+# Versions follow the pinned base image's Debian release; not pinned individually.
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 
 ENV PATH=/opt/venv/bin:$PATH \

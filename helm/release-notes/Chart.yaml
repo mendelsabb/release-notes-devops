@@ -1,0 +1,8 @@
+apiVersion: v2
+name: release-notes
+description: Release Notes service and its PostgreSQL datastore. One chart, configured per environment.
+type: application
+version: 1.0.0
+# The application version is not pinned here: each environment selects an
+# immutable image digest in gitops/environments/<env>/image.yaml.
+appVersion: "1.0.0"

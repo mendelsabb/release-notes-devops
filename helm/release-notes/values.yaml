@@ -1,0 +1,107 @@
+# Defaults shared by every environment. Per-environment overrides live in
+# gitops/environments/<env>/values.yaml; the image lives in .../image.yaml.
+
+environment: dev
+logLevel: INFO
+
+image:
+  repository: localhost:5001/release-notes
+  # Prefer digest (immutable). tag is a fallback for ad-hoc use.
+  digest: ""
+  tag: ""
+  # Human-readable version, used for labels only. The app reports the version
+  # baked into the image at build time.
+  version: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+rollout:
+  maxSurge: 1
+  maxUnavailable: 0
+  # A new pod must stay Ready this long before the next old pod is removed.
+  minReadySeconds: 5
+  # Rollout is reported as failed (Deployment Progressing=False, Argo CD
+  # Degraded) if it makes no progress for this long.
+  progressDeadlineSeconds: 120
+  revisionHistoryLimit: 5
+
+shutdown:
+  # Time for kube-proxy/endpoints to stop routing to a terminating pod before
+  # the app receives SIGTERM.
+  preStopSleepSeconds: 5
+  # uvicorn: max time to finish in-flight requests after SIGTERM.
+  gracefulTimeoutSeconds: 20
+  # Must exceed preStop + graceful timeout, or the kubelet SIGKILLs mid-drain.
+  terminationGracePeriodSeconds: 35
+
+app:
+  port: 8000
+  dbPoolSize: 5
+  dbMaxOverflow: 5
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+probes:
+  readiness:
+    path: /ready
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 2
+  liveness:
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+service:
+  type: ClusterIP
+  port: 80
+  # Only used when type is NodePort (local kind access).
+  nodePort: null
+
+database:
+  # Secret with keys "username" and "password". Created outside Git (see
+  # scripts/up.sh); never templated by this chart.
+  existingSecret: release-notes-db
+  name: release_notes
+  image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+  storage:
+    size: 1Gi
+    # Empty = cluster default StorageClass (kind: local-path).
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+migrations:
+  backoffLimit: 4
+  activeDeadlineSeconds: 300
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

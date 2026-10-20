@@ -1,0 +1,26 @@
+# Prometheus server + kube-state-metrics only. App pods are discovered through
+# the chart's built-in "kubernetes-pods" job via prometheus.io/* annotations.
+alertmanager:
+  enabled: false
+prometheus-pushgateway:
+  enabled: false
+prometheus-node-exporter:
+  enabled: false
+kube-state-metrics:
+  enabled: true
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+configmapReload:
+  prometheus:
+    enabled: false
+server:
+  global:
+    scrape_interval: 15s
+    evaluation_interval: 15s
+  retention: 2d
+  persistentVolume:
+    enabled: false # metrics are disposable in the local demo
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { memory: 768Mi }

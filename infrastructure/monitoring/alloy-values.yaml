@@ -1,0 +1,66 @@
+# Alloy tails container logs through the Kubernetes API and ships them to Loki.
+# One replica is enough for a single-node cluster; a multi-node cluster would
+# run it as a DaemonSet reading /var/log/pods on each node.
+controller:
+  type: deployment
+  replicas: 1
+alloy:
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { memory: 256Mi }
+  configMap:
+    content: |
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+          target_label  = "component"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.process.app.receiver]
+      }
+
+      // The API emits JSON lines: promote the (low-cardinality) level to a
+      // label so logs can be filtered by severity. Everything else stays in
+      // the line and is parsed at query time with `| json`.
+      loki.process "app" {
+        stage.match {
+          selector = "{app=\"release-notes\", component=\"api\"}"
+          stage.json {
+            expressions = { level = "level" }
+          }
+          stage.labels {
+            values = { level = "" }
+          }
+        }
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+        }
+      }

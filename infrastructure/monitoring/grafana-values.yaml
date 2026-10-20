@@ -1,0 +1,44 @@
+admin:
+  existingSecret: grafana-admin # created by scripts/up.sh, never committed
+  userKey: admin-user
+  passwordKey: admin-password
+service:
+  type: NodePort
+  nodePort: 30300
+persistence:
+  enabled: false # dashboards and datasources are provisioned from files
+grafana.ini:
+  auth.anonymous:
+    enabled: true # read-only viewing on localhost; editing needs the admin login
+    org_role: Viewer
+  analytics:
+    reporting_enabled: false
+    check_for_updates: false
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        url: http://prometheus-server.monitoring.svc.cluster.local
+        isDefault: true
+      - name: Loki
+        uid: loki
+        type: loki
+        url: http://loki.monitoring.svc.cluster.local:3100
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: default
+        folder: Release Notes
+        type: file
+        disableDeletion: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+dashboardsConfigMaps:
+  default: grafana-dashboards # created by scripts/up.sh from dashboards/*.json
+resources:
+  requests: { cpu: 25m, memory: 96Mi }
+  limits: { memory: 256Mi }

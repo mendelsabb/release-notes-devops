@@ -1,0 +1,12 @@
+# dev: single replica, verbose logs, fast feedback.
+environment: dev
+logLevel: DEBUG
+replicaCount: 1
+
+rollout:
+  minReadySeconds: 0
+  progressDeadlineSeconds: 120
+
+service:
+  type: NodePort
+  nodePort: 30081 # http://localhost:8081 via kind port mapping

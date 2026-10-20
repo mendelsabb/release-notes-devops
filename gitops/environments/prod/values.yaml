@@ -1,0 +1,35 @@
+# prod-like: 2+ replicas, zero-downtime rollout, autoscaling, disruption budget.
+environment: prod
+logLevel: INFO
+
+autoscaling:
+  enabled: true # replicas are owned by the HPA, not by this file
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+rollout:
+  maxSurge: 1
+  maxUnavailable: 0
+  minReadySeconds: 5
+  progressDeadlineSeconds: 120
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 256Mi
+
+service:
+  type: NodePort
+  nodePort: 30080 # http://localhost:8080 via kind port mapping
+
+database:
+  storage:
+    size: 2Gi

@@ -1,0 +1,151 @@
+# Single-instance PostgreSQL per environment. Persistent (PVC) but NOT highly
+# available: if this pod is down, the API is down. See DECISIONS.md.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "release-notes.dbHost" . }}
+  labels:
+    {{- include "release-notes.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  # Headless governing Service for the StatefulSet; cluster-internal only.
+  clusterIP: None
+  selector:
+    {{- include "release-notes.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "release-notes.dbHost" . }}
+  labels:
+    {{- include "release-notes.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  serviceName: {{ include "release-notes.dbHost" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "release-notes.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        {{- include "release-notes.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: database
+    spec:
+      automountServiceAccountToken: false
+      # Postgres "fast" shutdown checkpoints quickly; leave room for it.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        # uid/gid 70 = postgres user in the alpine image.
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: {{ .Values.database.image }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.database.name | quote }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: password
+            # Subdirectory: the volume root contains lost+found on some provisioners.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              # SIGTERM means "smart" shutdown (waits for clients to leave);
+              # request a fast shutdown so termination is bounded.
+              exec:
+                command: ["sh", "-c", "pg_ctl stop -D \"$PGDATA\" -m fast -t 50"]
+          resources:
+            {{- toYaml .Values.database.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "release-notes.selectorLabels" . | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.database.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.database.storage.size }}
+---
+# Only this release's API and migration pods may reach Postgres.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "release-notes.dbHost" . }}
+  labels:
+    {{- include "release-notes.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "release-notes.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: database
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name | quote }}] }
+              - { key: app.kubernetes.io/component, operator: In, values: ["api", "migration"] }
+      ports:
+        - port: 5432
+          protocol: TCP

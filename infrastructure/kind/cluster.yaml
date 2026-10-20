@@ -1,0 +1,21 @@
+# Single-node kind cluster for the local demo.
+# - Host ports bind to 127.0.0.1 only and map to NodePort Services.
+# - containerd reads per-registry config from /etc/containerd/certs.d, which
+#   scripts/up.sh populates so "localhost:5001" resolves to the kind-registry
+#   container (the pattern from https://kind.sigs.k8s.io/docs/user/local-registry/).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: release-notes
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.35.1@sha256:05d7bcdefbda08b4e038f644c4df690cdac3fba8b06f8289f30e10026720a1ab
+    extraPortMappings:
+      - { containerPort: 30080, hostPort: 8080, listenAddress: "127.0.0.1" } # app (prod)
+      - { containerPort: 30081, hostPort: 8081, listenAddress: "127.0.0.1" } # app (dev)
+      - { containerPort: 30300, hostPort: 3000, listenAddress: "127.0.0.1" } # Grafana
+      - { containerPort: 30090, hostPort: 8090, listenAddress: "127.0.0.1" } # Argo CD UI
+      - { containerPort: 30418, hostPort: 8418, listenAddress: "127.0.0.1" } # GitOps git mirror

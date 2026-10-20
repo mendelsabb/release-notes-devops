@@ -1,0 +1,33 @@
+# Lean Argo CD for a laptop: no SSO, notifications or ApplicationSets.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  replicas: 0
+configs:
+  params:
+    server.insecure: true # plain HTTP on localhost only
+  cm:
+    # Poll Git every 60s; scripts also trigger an immediate refresh after a push.
+    timeout.reconciliation: 60s
+    timeout.reconciliation.jitter: 0s
+server:
+  service:
+    type: NodePort
+    nodePortHttp: 30090
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { memory: 256Mi }
+repoServer:
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { memory: 512Mi }
+controller:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+redis:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }

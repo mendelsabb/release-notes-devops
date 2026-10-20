@@ -1,0 +1,7 @@
+# Desired image for the "dev" environment. Written by automation (CI, make
+# release/promote/rollback) — the only thing those workflows change, so image
+# rollbacks never revert unrelated configuration.
+image:
+  repository: localhost:5001/release-notes
+  digest: ""
+  version: "1.0.0"

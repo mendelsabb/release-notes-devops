@@ -65,6 +65,10 @@ pod are counted too.
    until the Service converges.
 8. Postgres `preStop: pg_ctl stop` was redundant: containerd honours the image's `STOPSIGNAL SIGINT`
    (verified: "received fast shutdown request").
+9. Two CI publish jobs racing on `main` (found on the first real release): the second one's
+   `git pull --rebase` of its `dev/image.yaml` edit always conflicted, and the retry loop hid the
+   error, so the job was green but dev never got 1.1.0 → `scripts/ci-deploy-dev.sh` re-applies the
+   change on the latest main, skips builds that are older than the newest code, and fails loudly.
 
 ## GitHub Actions (github.com/mendelsabb/release-notes-devops)
 
@@ -83,7 +87,20 @@ not run workflows for events created by `GITHUB_TOKEN`), so the promotion PR sho
 check. The change it carries (one digest) was already built and tested on `main`. A GitHub App token
 would give these PRs real CI.
 
+## GitHub mode: ApplicationSet + Argo CD watching GitHub
+
+After switching to a root app + ApplicationSet and pointing Argo CD at the GitHub repository:
+
+| Step | Result |
+|---|---|
+| Migration of the running cluster to the ApplicationSet | old Applications deleted (no finalizers), the ApplicationSet adopted the workloads: same pods, 0 restarts |
+| Continuous delivery to dev | CI's `deploy(dev)` commit on `main` was synced by Argo CD from GitHub about 50 s later, with no local action |
+| Publish race (two runs on main) | the older run logged "main already has newer code … Skipping", the newer one deployed 1.1.0 |
+| `make demo-rollout` (PR #4 release 1.2.0 → CI → dev; PR #5 promote) | prod 1.0.0 → 1.2.0 under traffic: **0 of 6,004 requests failed**; 1.0.0 last seen at 38 s, 1.2.0 first seen at 28 s |
+| `make demo-broken-rollout` (CI fault image, PR #6 to prod, PR #7 rollback) | new pod never Ready, ProgressDeadlineExceeded, Argo CD `Synced/Degraded`, rollback Healthy: **0 of 24,001 requests failed** over 10 min |
+| `make e2e` in GitHub mode | 38/38 |
+
 ## Not verified
 
-- Argo CD tracking the hosted GitHub repo directly (`repoURL` change) was not exercised; the
-  in-cluster mirror was, fed from the GitHub `main` branch.
+- Local mode was verified before this change (sections above) and its code path is unchanged
+  apart from the shared delivery function; it was not re-run end to end afterwards.

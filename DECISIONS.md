@@ -11,10 +11,17 @@
   `gitops/environments/<env>/values.yaml`. The image is a separate `image.yaml` per environment and
   is the only file automation ever edits, so a rollback cannot revert config by accident.
 - **GitOps with Argo CD, build once / deploy many.** CI never touches a cluster. It publishes an
-  image and commits its **digest**. Promotion copies that exact digest to prod in a reviewed commit,
-  and rollback restores the previous digest from git history. Locally, Argo CD watches an
-  in-cluster git server that mirrors your checkout, so a reviewer can run the whole loop without
-  push rights to my GitHub or a GHCR account. With a hosted repo only `repoURL` changes.
+  image to GHCR and commits its **digest** to `dev/image.yaml`. Promotion copies that exact digest to
+  prod in a reviewed pull request, and rollback restores the previous digest from git history.
+  Environments are folders on `main`, not branches (branch-per-environment drifts and turns
+  promotions into merges). A root app (app-of-apps) syncs an **ApplicationSet** whose Git directory
+  generator creates one Application per folder, which is the pattern the Argo CD docs recommend
+  for many similar apps. Argo CD watches GitHub directly; `make up GITOPS_MODE=local` swaps in an
+  in-cluster git mirror and local registry for reviewers without push rights.
+- **One repository for code and config.** The Argo CD docs recommend a separate config repo
+  (cleaner history, separate access, no CI loops). The assignment asks for one repo, so I kept one
+  and prevented the loop with `paths-ignore` and `GITHUB_TOKEN` commits. At work, config would live
+  in its own repo.
 - **Zero-downtime settings, measured rather than assumed.** `maxSurge 1 / maxUnavailable 0`,
   readiness checks the DB, `minReadySeconds 5`, a 5 s `preStop` sleep (endpoint removal is
   asynchronous), uvicorn drains for up to 20 s, and the grace period is 35 s. An in-cluster load

@@ -25,15 +25,17 @@ flowchart LR
       api --> db[("PostgreSQL StatefulSet<br/>+ PVC")]
       job["migration Job<br/>(Argo CD sync hook)"] --> db
     end
-    git["git server<br/>(GitOps repo)"] --> argo[Argo CD]
-    argo -- "sync helm/release-notes<br/>+ gitops/environments/prod" --> prod
+    argo[Argo CD<br/>root app → ApplicationSet] -- "one app per gitops/environments/*<br/>same chart, same branch" --> prod
     prom[Prometheus] -- scrape /metrics --> api
     alloy[Alloy] -- container logs --> loki[Loki]
     graf[Grafana] --> prom & loki
   end
   user((Browser / curl)) -- "localhost:8080" --> svc
-  dev((you / CI)) -- "git push (desired state)" --> git
-  reg[("registry<br/>localhost:5001 / GHCR")] -. image by digest .-> api
+  gh[("GitHub repo<br/>main")] -- "polled by" --> argo
+  ci((GitHub Actions)) -- "commit dev digest" --> gh
+  you((you)) -- "pull requests<br/>release / promote / rollback" --> gh
+  ci -- "push image" --> reg[("GHCR")]
+  reg -. image by digest .-> api
 ```
 
 **Runtime.** Each environment is a namespace containing the API Deployment, a Postgres
@@ -43,19 +45,26 @@ API's `/health` (liveness) never touches the database, while `/ready` (readiness
 `releases` table. A database outage therefore takes pods out of the Service without restarting
 them.
 
-**Delivery.** Argo CD renders the same chart with
-`gitops/environments/<env>/{values,image}.yaml`. `image.yaml` holds the image **digest** and is the
-only file automation changes. Every deploy, promotion and rollback is therefore a one-file Git
-commit, and Argo CD reconciles it. There are two front ends to the same mechanism:
+**Delivery.** Environments are **folders on one branch**, not branches. `make up` creates a single
+root Application (app-of-apps, `infrastructure/argocd/root-app.yaml`). It syncs
+`gitops/argocd/`: an AppProject and an **ApplicationSet** whose Git directory generator creates one
+Application per folder in `gitops/environments/`. Every environment renders the same chart from
+`main` with its own `values.yaml` (configuration) and `image.yaml` (the image **digest**, the only
+file automation changes). So:
 
-| | Image registry | GitOps repo Argo CD watches | Who writes `image.yaml` |
+- a merge to `main` → CI builds once, pushes to GHCR and commits the new digest to
+  `dev/image.yaml` → Argo CD deploys **dev**;
+- **prod** only changes when a pull request that edits `prod/image.yaml` is merged (promotion of
+  dev's exact digest, or a rollback);
+- a new environment is a new folder (plus its namespace in the AppProject).
+
+| Mode | Argo CD watches | Images | `make release / promote / rollback` |
 |---|---|---|---|
-| **Local (this README)** | `localhost:5001` (registry container) | in-cluster git server, a mirror of your checkout | `make release / promote / rollback` (commit + push to the mirror) |
-| **GitHub** | GHCR | the GitHub repo | `ci.yml` (dev, on merge to main), `gitops-change.yml` (prod, via PR) |
+| **github** (default) | the GitHub repo (`origin`) | GHCR, built only by CI | open a pull request, wait for CI, merge, wait for Argo CD |
+| **local** (`make up GITOPS_MODE=local`) | an in-cluster git server mirroring your checkout | local registry `localhost:5001` | commit locally and push to the mirror |
 
-The local loop exists so anyone can run the full GitOps flow from a clone, without push access to
-a GitHub repo or a GHCR account. Pointing Argo CD at GitHub only changes `repoURL`
-([below](#cicd-on-github)).
+Local mode is for reviewers without push rights to the repository, or offline use: the same
+GitOps mechanics, but nothing leaves the laptop. `make up` remembers the mode for later commands.
 
 **Observability.** Prometheus discovers pods via `prometheus.io/*` annotations and keeps
 `namespace`/`pod` labels, so dev and prod are separate series. kube-state-metrics adds replica
@@ -72,7 +81,11 @@ Notes* dashboard.
 | kubectl | 1.35 | |
 | Helm | 4.1 (3.x also works) | charts are installed with `--repo`, no `helm repo add` needed |
 | git, curl, openssl, make | any recent | scripts are bash 3.2 compatible (stock macOS) |
-| [uv](https://docs.astral.sh/uv/) | 0.12 | only for running tests/lint locally |
+| [uv](https://docs.astral.sh/uv/) | 0.12 | tests/lint, and the version bump in `make release` (GitHub mode) |
+| [gh](https://cli.github.com/) | 2.x | GitHub mode only: `make release/promote/rollback` open and merge pull requests |
+
+GitHub mode also needs `gh auth login` and push rights to the repository for
+`make release/promote/rollback`; Argo CD itself reads the public repo anonymously.
 
 Free host ports: 8080, 8081, 3000, 8090, 8418 (cluster) and 5001 (registry). They bind to
 `127.0.0.1` only. The running stack uses about 4 GB of memory and about 6 GB of disk for images.
@@ -80,7 +93,8 @@ Free host ports: 8080, 8081, 3000, 8090, 8418 (cluster) and 5001 (registry). The
 ## Quick start
 
 ```bash
-make up        # cluster, registry, platform, both environments (~4 min measured; longer on first image pulls)
+make up        # cluster, platform, both environments from GitHub (~4 min measured; longer on first image pulls)
+make up GITOPS_MODE=local   # same, but offline: in-cluster git mirror + local registry
 make status    # desired state in git vs what Argo CD / Kubernetes report
 make e2e       # 38 end-to-end checks against the running stack
 ```
@@ -92,15 +106,18 @@ make e2e       # 38 end-to-end checks against the running stack
    enforce the *restricted* Pod Security Standard);
 3. generates per-environment DB credentials and the Grafana admin password as Kubernetes Secrets
    (never written to git);
-4. deploys the in-cluster git server and installs Argo CD, Prometheus, Loki, Alloy, Grafana and
-   metrics-server (pinned chart versions in `infrastructure/versions.env`, installed in parallel);
-5. checks that the image digests in `gitops/environments/*/image.yaml` exist. On a fresh clone they
-   don't (they point at the author's registry), so it **builds the current commit once and commits
-   the digest** (`deploy(bootstrap): ...`). That way Argo CD still deploys from git;
-6. pushes your branch to the in-cluster git repo, registers the two Argo CD Applications, and waits
-   until both are *Synced* **and** *Healthy* at that commit, then smoke-tests both environments.
+4. installs Argo CD, Prometheus, Loki, Alloy, Grafana and metrics-server (pinned chart versions in
+   `infrastructure/versions.env`, installed in parallel), plus the in-cluster git server in local
+   mode;
+5. checks that the image digests in `gitops/environments/*/image.yaml` can be pulled. In GitHub
+   mode a missing image is an error (images come only from CI). In local mode it **builds the
+   current commit once and commits the digest** (`deploy(bootstrap): ...`) so Argo CD still deploys
+   from git;
+6. registers the root Application (pointed at your `origin`, or at the mirror in local mode) and
+   waits until both environments are *Synced* **and** *Healthy* at the desired commit, then
+   smoke-tests them.
 
-Only committed changes are deployed (that's GitOps); `make up` warns about uncommitted changes.
+Only committed (and, in GitHub mode, pushed) changes are deployed: that's GitOps.
 
 ### Access
 
@@ -144,11 +161,14 @@ make e2e        # against the running cluster: API, UI, Argo CD, Prometheus, Lok
 
 ## Delivery: release, promote, roll back
 
-All three are git commits that change a single `image.yaml`. Argo CD does the deploying.
+Each one is a reviewed change to Git; Argo CD does the deploying. In GitHub mode every command
+opens a pull request, waits for CI on it, merges it (the merge is the approval) and waits for Argo
+CD; in local mode it commits and pushes to the mirror.
 
 ```bash
-make release VERSION=1.1.0   # build the current commit once, push, set dev's digest, wait for dev Healthy
-make promote                 # gate: dev Synced/Healthy and serving that digest -> copy the same digest to prod
+make release VERSION=1.1.0   # github: version-bump PR -> CI builds once, pushes to GHCR, commits dev's digest
+                             # local:  build the current commit into the local registry, set dev's digest
+make promote                 # gate: dev Synced/Healthy and serving that digest -> same digest to prod
 make rollback ENV=prod       # restore prod's previous digest from git history (only image.yaml changes)
 TO=<git-rev> make rollback ENV=prod   # ...or the image.yaml as of a specific commit
 ```
@@ -167,20 +187,25 @@ schema. Data is never rolled back; that would be a restore from backup.
   4. an image build tagged `<version>-<sha7>`, a smoke test (read-only, non-root, `/version`,
      `alembic history`) and a Trivy vulnerability scan (fails on fixable HIGH/CRITICAL).
 
+  A manual run with `simulate_unready: true` builds the failed-rollout drill image instead and
+  publishes it as `<version>-unready-<sha7>` without deploying it (used by
+  `make demo-broken-rollout`).
+
   On `main` only, after all of that, **publish** pushes a multi-arch image (with SBOM and
   provenance) to `ghcr.io/<owner>/release-notes` and commits its digest to
   `gitops/environments/dev/image.yaml`. That commit is made with `GITHUB_TOKEN`, so it does not
   trigger another run, and `paths-ignore` skips image-only commits anyway.
 - **`.github/workflows/gitops-change.yml`** (manual) opens a **pull request** that either promotes
-  dev's digest to prod or rolls an environment back. It reuses `scripts/promote.sh` /
-  `scripts/rollback.sh` with `GITOPS_ONLY=1`. Merging the PR is the approval, and Argo CD deploys.
+  dev's digest to prod or rolls an environment back, for people who prefer the GitHub UI to
+  `make`. It reuses `scripts/promote.sh` / `scripts/rollback.sh` with `GITOPS_ONLY=1`. Merging the
+  PR is the approval, and Argo CD deploys.
 
 Verified on [github.com/mendelsabb/release-notes-devops](https://github.com/mendelsabb/release-notes-devops/actions)
 (runs linked in [docs/verification.md](docs/verification.md)). Repository settings this needs: Actions allowed to *create pull requests* and to write
 `contents`/`packages`. The GHCR package must be **public** (or the cluster needs an
 `imagePullSecret`). If `main` is protected against direct pushes, change the dev step to open a PR
-as well. To have Argo CD track GitHub instead of the local mirror, change `repoURL` (and
-`sourceRepos`) in `gitops/argocd/applications.yaml` to your repository URL.
+as well. Argo CD's repository URL is taken from your `origin` remote at `make up`, so a fork
+works without editing files.
 
 ## Zero-downtime rollout
 
@@ -262,9 +287,10 @@ alembic/                  migrations (run by the Argo CD sync-hook Job)
 tests/                    unit/, integration/ (Postgres), chart/ (helm template policy tests)
 Dockerfile                multi-stage, non-root, read-only-rootfs compatible
 helm/release-notes/       the one chart (API, Postgres, migration Job, HPA/PDB, NetworkPolicy)
-gitops/environments/      per-environment values.yaml + image.yaml (desired state)
-gitops/argocd/            AppProject + the two Applications
-infrastructure/           kind config, namespaces, git server, platform chart values, dashboard
+gitops/environments/      one folder per environment: values.yaml + image.yaml (desired state)
+gitops/argocd/            AppProject + ApplicationSet (synced by the root app)
+infrastructure/           kind config, namespaces, Argo CD root app, platform chart values, dashboard,
+                          git server (local mode only)
 scripts/                  up/down/status, release/promote/rollback, traffic, verify, demo/*
 .github/workflows/        ci.yml, gitops-change.yml
 docs/verification.md      what was executed and the results
@@ -283,10 +309,15 @@ make clean   # also removes the local registry container + its volume and the gi
 - Secrets are generated by `make up` and live only in the cluster. A real setup would use External
   Secrets or Sealed Secrets.
 - No TLS, Ingress, alerting rules or SLOs. Grafana allows anonymous read-only viewing on localhost.
-- The in-cluster git server accepts anonymous pushes. It's reachable only from inside the cluster and
-  from `127.0.0.1`.
-- Promotion and rollback PRs are opened with `GITHUB_TOKEN`, so GitHub does not run CI on them (the
-  digest was already built and tested on `main`). A GitHub App token would fix that.
+- Code and deployment config share one repository (the assignment asks for one). The Argo CD docs
+  recommend a separate config repo for cleaner history and access control; the CI loop it warns
+  about is avoided here with `paths-ignore` and `GITHUB_TOKEN` commits.
+- `make release/promote/rollback` merge their own pull request once CI passes; on a team, branch
+  protection with a required reviewer would make the merge a human decision.
+- PRs opened by the *GitOps change* workflow use `GITHUB_TOKEN`, so GitHub does not run CI on them
+  (the digest was already built and tested on `main`). A GitHub App token would fix that.
+- Local mode only: the in-cluster git server accepts anonymous pushes. It's reachable only from
+  inside the cluster and from `127.0.0.1`.
 
 ## Troubleshooting
 
@@ -295,6 +326,7 @@ make clean   # also removes the local registry container + its volume and the gi
 | `Host ports already in use` | stop whatever uses 8080/8081/3000/8090/8418, or `make down` an old cluster |
 | a platform chart failed | `make up` again; logs are in `.local/logs/helm-<name>.log` |
 | app stuck `OutOfSync`/`Progressing` | `make status`; `kubectl -n argocd get application release-notes-prod -o yaml`; check the migration Job logs: `kubectl -n prod logs job/release-notes-migrate` |
-| changes not deployed | commit them; `make release` / `make promote`, or rerun `make up` to push HEAD to the GitOps repo |
+| changes not deployed | GitHub mode: they must be merged on `main` (`make status` shows the synced commit); local mode: commit them and rerun `make up` (pushes HEAD to the mirror) |
+| `make up` says an image can't be pulled | GitHub mode uses CI-built images only: check the CI run on `main` and that the GHCR package is public, or use `make up GITOPS_MODE=local` |
 | pods `ImagePullBackOff` after `make clean` | the registry was wiped; `make up` rebuilds and records new digests |
 | Docker out of memory | raise Docker's memory to 6–8 GB |

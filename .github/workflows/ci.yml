@@ -137,8 +137,8 @@ jobs:
             release-notes:${{ steps.meta.outputs.tag }}
 
   publish:
-    # Only after every check passed, only for main.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Only after every check passed, only for main (push, or a manual re-run).
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-24.04
     permissions:

@@ -19,7 +19,8 @@ if [[ "${BROKEN:-0}" == "1" ]]; then
 fi
 
 log "Building release-notes:${version} from $(git -C "$ROOT" rev-parse --short HEAD)"
-digest="$(build_and_push "$version" "${build_args[@]}")"
+# bash 3.2 (macOS) treats an empty "${arr[@]}" as unbound under set -u.
+digest="$(build_and_push "$version" ${build_args[@]+"${build_args[@]}"})"
 [[ "$digest" == sha256:* ]] || die "Could not read the pushed image digest from the local registry"
 ok "Pushed ${IMAGE_REPO}@${digest}"
 

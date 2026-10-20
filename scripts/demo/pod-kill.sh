@@ -17,11 +17,16 @@ if [[ "${CRASH:-0}" == "1" ]]; then
   cid=$(k -n prod get pod "$victim" -o jsonpath='{.status.containerStatuses[0].containerID}')
   node=$(k -n prod get pod "$victim" -o jsonpath='{.spec.nodeName}')
   pid=$(docker exec "$node" crictl inspect --output go-template --template '{{.info.pid}}' "${cid#containerd://}")
+  before=$(k -n prod get pod "$victim" -o jsonpath='{.status.containerStatuses[0].restartCount}')
   log "SIGKILL app process (pid ${pid}) of ${victim}"
   docker exec "$node" kill -9 "$pid"
-  _restarted() { [[ "$(k -n prod get pod "$victim" -o jsonpath='{.status.containerStatuses[0].ready}')" == "true" ]]; }
-  wait_until 120 "${victim} to be restarted and Ready" _restarted
-  ok "Container restarted by the kubelet: $(k -n prod get pod "$victim" -o jsonpath='{.status.containerStatuses[0].restartCount}') restart(s)"
+  # The pod still looks Ready until the kubelet notices: wait for the restart itself.
+  _restarted() {
+    [[ "$(k -n prod get pod "$victim" -o jsonpath='{.status.containerStatuses[0].restartCount}')" -gt "$1" &&
+      "$(k -n prod get pod "$victim" -o jsonpath='{.status.containerStatuses[0].ready}')" == "true" ]]
+  }
+  wait_until 120 "${victim} to be restarted and Ready" _restarted "$before"
+  ok "Container restarted by the kubelet (restartCount ${before} -> $(k -n prod get pod "$victim" -o jsonpath='{.status.containerStatuses[0].restartCount}')) and Ready again"
   traffic_wait prod
   exit 0
 fi

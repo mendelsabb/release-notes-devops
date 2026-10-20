@@ -167,7 +167,8 @@ sync_main() {
   [[ "$(gitops_mode)" == github ]] || return 0
   [[ "$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)" == "$GITOPS_BRANCH" ]] ||
     die "Switch to the ${GITOPS_BRANCH} branch first (GitOps changes are made from it)"
-  git -C "$ROOT" pull --quiet --rebase --autostash origin "$GITOPS_BRANCH"
+  git -C "$ROOT" fetch --quiet origin "$GITOPS_BRANCH"
+  git -C "$ROOT" rebase --quiet --autostash "origin/${GITOPS_BRANCH}" >/dev/null
 }
 
 _before_merge() {

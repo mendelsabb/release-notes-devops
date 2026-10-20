@@ -29,7 +29,7 @@ if [[ "$(gitops_mode)" == github ]]; then
   sync_main
   current=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/pyproject.toml")
   [[ "$version" != "$current" ]] || die "Version $version is already the current version"
-  (cd "$ROOT" && uv version "$version" --no-sync >/dev/null)
+  (cd "$ROOT" && uv version --quiet --no-sync "$version")
   deliver_change "release: $version" "$ROOT/pyproject.toml" "$ROOT/uv.lock"
   log "Waiting for CI on main to build $version, push it to GHCR and deploy it to dev"
   wait_until 1200 "CI to commit the $version digest to gitops/environments/dev/image.yaml" \

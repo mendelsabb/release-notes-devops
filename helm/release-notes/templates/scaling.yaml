@@ -5,6 +5,10 @@ metadata:
   name: {{ .Release.Name }}
   labels:
     {{- include "release-notes.labels" . | nindent 4 }}
+  annotations:
+    # After the Deployment (wave 2): Argo CD reports an HPA without a target as
+    # Degraded, which would block the wave ordering forever.
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -30,6 +34,8 @@ metadata:
   name: {{ .Release.Name }}
   labels:
     {{- include "release-notes.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
   selector:

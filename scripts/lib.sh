@@ -130,9 +130,25 @@ push_gitops() {
   ok "Pushed ${branch}@$(git -C "$ROOT" rev-parse --short HEAD) to the in-cluster GitOps repo"
   local env
   for env in "${ENVIRONMENTS[@]}"; do
+    terminate_stale_sync "$env"
     k -n argocd annotate application "release-notes-$env" \
       argocd.argoproj.io/refresh=normal --overwrite >/dev/null 2>&1 || true
   done
+}
+
+# A sync operation that is still retrying keeps using the revision it started
+# with, so a newer commit (e.g. a rollback of a release whose migration fails)
+# would wait for those retries. Terminate such an operation; automated sync then
+# starts a fresh one at the new HEAD. Same effect as `argocd app terminate-op`.
+terminate_stale_sync() {
+  local app="release-notes-$1" phase revision
+  phase=$(k -n argocd get application "$app" -o jsonpath='{.status.operationState.phase}' 2>/dev/null) || return 0
+  revision=$(k -n argocd get application "$app" -o jsonpath='{.status.operationState.operation.sync.revision}')
+  if [[ "$phase" == "Running" && "$revision" != "$(git -C "$ROOT" rev-parse HEAD)" ]]; then
+    warn "Terminating in-progress sync of $app at stale revision ${revision:0:7}"
+    k -n argocd patch application "$app" --type merge \
+      -p '{"status":{"operationState":{"phase":"Terminating"}}}' >/dev/null
+  fi
 }
 
 # --- Argo CD / rollout status --------------------------------------------------

@@ -96,8 +96,10 @@ database:
       memory: 512Mi
 
 migrations:
-  backoffLimit: 4
-  activeDeadlineSeconds: 300
+  # Fail fast: while a sync operation is retrying, Argo CD keeps using that
+  # operation's revision, so a long-failing migration delays the fix/rollback.
+  backoffLimit: 2
+  activeDeadlineSeconds: 180
   resources:
     requests:
       cpu: 50m

@@ -2,6 +2,6 @@
 # release/promote/rollback) — the only thing those workflows change, so image
 # rollbacks never revert unrelated configuration.
 image:
-  repository: localhost:5001/release-notes
-  digest: "sha256:3d37b3a81619c53da6cc7e02b230e73c9b688043f5545a7f9bc619f5178dbd6c"
+  repository: ghcr.io/mendelsabb/release-notes
+  digest: "sha256:2139c4f2e75b3b2c548f5b9ff6cbad25ce81de599cd9d31e7b7583e42856debc"
   version: "1.0.0"

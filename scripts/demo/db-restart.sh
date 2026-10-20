@@ -13,6 +13,9 @@ curl -fsS -X POST "$api" -H 'Content-Type: application/json' \
   -d "{\"version\":\"${marker}\",\"description\":\"written before the database restart\"}" >/dev/null
 ok "Wrote release ${marker}"
 
+restarts_of() { k -n prod get pods -l app.kubernetes.io/component=api \
+  -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{"+"}{end}0' | bc; }
+restarts_before=$(restarts_of)
 traffic_start prod 90 --max-failures 1000000
 sleep 10
 pvc_uid=$(k -n prod get pvc data-release-notes-db-0 -o jsonpath='{.metadata.uid}')
@@ -38,11 +41,8 @@ ok "API fully Ready after $((SECONDS - start))s"
   ok "Same PVC re-attached (uid ${pvc_uid:0:8})"
 curl -fsS --retry 5 --retry-all-errors --retry-delay 1 "${api}?limit=200" | grep -q "\"${marker}\"" || die "Release ${marker} missing after restart!"
 ok "Release ${marker} survived the database restart"
-probe_failures=$(k -n prod get events --field-selector reason=Unhealthy -o jsonpath='{range .items[*]}{.message}{"\n"}{end}' |
-  grep -c 'Readiness probe failed' || true)
-ok "Readiness probe failures recorded in events: ${probe_failures} (readiness tracks the DB; how many depends on restart speed vs probe period)"
-restarts=$(k -n prod get pods -l app.kubernetes.io/component=api -o jsonpath='{.items[*].status.containerStatuses[0].restartCount}')
-ok "API container restart counts: ${restarts} (liveness did not restart them)"
+[[ "$(restarts_of)" == "$restarts_before" ]] &&
+  ok "No API container restarts: liveness (/health) ignores the database by design"
 
 traffic_wait prod || true
 python3 - "$ROOT/.local/traffic-prod.json" <<'PY' || true

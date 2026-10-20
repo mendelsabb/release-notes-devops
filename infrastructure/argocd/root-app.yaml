@@ -1,0 +1,22 @@
+# The only Argo CD object created by hand (scripts/up.sh): the root of an
+# app-of-apps. It syncs gitops/argocd/ (AppProject + ApplicationSet), and the
+# ApplicationSet creates one Application per environment. From here on, every
+# change to what runs in the cluster goes through Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: release-notes-root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: http://git-server.git.svc.cluster.local/release-notes.git
+    targetRevision: main
+    path: gitops/argocd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

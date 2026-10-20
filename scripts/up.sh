@@ -189,8 +189,8 @@ ensure_app_images() {
 
 deploy_apps() {
   push_gitops
-  k apply -f "$ROOT/gitops/argocd/applications.yaml" >/dev/null
-  ok "Argo CD applications registered"
+  k apply -f "$ROOT/infrastructure/argocd/root-app.yaml" >/dev/null
+  ok "Argo CD root application registered (it creates the ApplicationSet and one app per environment)"
   wait_for_app dev 600
   wait_for_app prod 600
 }

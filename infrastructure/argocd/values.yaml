@@ -1,10 +1,13 @@
-# Lean Argo CD for a laptop: no SSO, notifications or ApplicationSets.
+# Lean Argo CD for a laptop: no SSO or notifications.
 dex:
   enabled: false
 notifications:
   enabled: false
 applicationSet:
-  replicas: 0
+  # Generates one Application per environment folder (gitops/argocd/applicationset.yaml).
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
 configs:
   params:
     server.insecure: true # plain HTTP on localhost only

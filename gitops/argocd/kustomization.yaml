@@ -1,0 +1,4 @@
+# Rendered by the root Application (infrastructure/argocd/root-app.yaml).
+resources:
+  - project.yaml
+  - applicationset.yaml

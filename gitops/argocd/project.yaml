@@ -1,0 +1,18 @@
+# Guard rails for everything the ApplicationSet generates: one repo, only the
+# environment namespaces, no cluster-scoped resources. A new environment folder
+# also needs its namespace allowed here, which keeps adding environments an
+# admin-reviewed change.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: release-notes
+  namespace: argocd
+spec:
+  description: Release Notes service, one Application per environment
+  sourceRepos:
+    - http://git-server.git.svc.cluster.local/release-notes.git
+  destinations:
+    - { server: https://kubernetes.default.svc, namespace: dev }
+    - { server: https://kubernetes.default.svc, namespace: prod }
+  # Namespaces are platform-owned (scripts/up.sh); apps may not create cluster-scoped resources.
+  clusterResourceWhitelist: []

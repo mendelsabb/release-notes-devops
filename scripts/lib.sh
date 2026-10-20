@@ -128,6 +128,8 @@ push_gitops() {
   # The mirror is a disposable copy of this checkout, so force is safe here.
   git -C "$ROOT" push --quiet --force "$GIT_MIRROR_REMOTE" "HEAD:refs/heads/${GITOPS_BRANCH}"
   ok "Pushed ${branch}@$(git -C "$ROOT" rev-parse --short HEAD) to the in-cluster GitOps repo"
+  k -n argocd annotate application release-notes-root \
+    argocd.argoproj.io/refresh=normal --overwrite >/dev/null 2>&1 || true
   local env
   for env in "${ENVIRONMENTS[@]}"; do
     terminate_stale_sync "$env"

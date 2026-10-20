@@ -1,0 +1,52 @@
+# One Argo CD Application per folder in gitops/environments/ (Git directory
+# generator). Every environment renders the same chart from the same branch;
+# they differ only in the files inside their folder:
+#   values.yaml  environment configuration (replicas, log level, resources...)
+#   image.yaml   the image digest, the only file CI/promote/rollback change
+# Adding an environment = adding a folder (plus its namespace in project.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: release-notes
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: http://git-server.git.svc.cluster.local/release-notes.git
+        revision: main
+        directories:
+          - path: gitops/environments/*
+  template:
+    metadata:
+      name: "release-notes-{{ .path.basename }}"
+      labels:
+        environment: "{{ .path.basename }}"
+    spec:
+      # Fixed, not templated: a folder in Git cannot pick its own permissions.
+      project: release-notes
+      source:
+        repoURL: http://git-server.git.svc.cluster.local/release-notes.git
+        targetRevision: main
+        path: helm/release-notes
+        helm:
+          releaseName: release-notes
+          valueFiles:
+            - "../../{{ .path.path }}/values.yaml"
+            - "../../{{ .path.path }}/image.yaml"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .path.basename }}"
+      syncPolicy:
+        # Automated for every environment: the gate for prod is the reviewed
+        # pull request that changes prod/image.yaml, not a click in the UI.
+        automated:
+          prune: true
+          selfHeal: true
+        retry:
+          limit: 2
+          backoff: { duration: 5s, factor: 2, maxDuration: 30s }
+  syncPolicy:
+    # Deleting the ApplicationSet must never delete running environments.
+    preserveResourcesOnDeletion: true

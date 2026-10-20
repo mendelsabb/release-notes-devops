@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Release Notes</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">RN</span>
+        <h1>Release Notes</h1>
+      </div>
+      <div class="meta">
+        <span id="env-badge" class="badge badge-env" hidden></span>
+        <span id="version-badge" class="badge badge-version" title="Running build">v…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap layout">
+    <section class="card" aria-labelledby="form-title">
+      <h2 id="form-title">Record a release</h2>
+      <form id="release-form" novalidate>
+        <label for="version">Version</label>
+        <input id="version" name="version" required maxlength="50" autocomplete="off"
+               placeholder="e.g. 2.4.0" pattern="[A-Za-z0-9][A-Za-z0-9._+\-]{0,49}">
+        <p class="hint">Letters, digits and <code>. _ + -</code>, up to 50 characters. Must be unique.</p>
+
+        <label for="description">What shipped</label>
+        <textarea id="description" name="description" required maxlength="5000" rows="5"
+                  placeholder="Summary of changes, fixes and notable risks"></textarea>
+
+        <button id="submit" type="submit">Record release</button>
+        <div id="feedback" class="feedback" role="status" aria-live="polite"></div>
+      </form>
+    </section>
+
+    <section class="card" aria-labelledby="history-title">
+      <div class="card-head">
+        <h2 id="history-title">History</h2>
+        <button id="refresh" class="ghost" type="button" aria-label="Refresh history">Refresh</button>
+      </div>
+      <div id="history" aria-busy="true">
+        <p class="muted">Loading releases…</p>
+      </div>
+    </section>
+  </main>
+
+  <template id="release-item">
+    <article class="release">
+      <div class="release-head">
+        <span class="release-version"></span>
+        <time class="release-time"></time>
+      </div>
+      <p class="release-desc"></p>
+    </article>
+  </template>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

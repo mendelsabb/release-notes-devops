@@ -3,5 +3,5 @@
 # rollbacks never revert unrelated configuration.
 image:
   repository: ghcr.io/mendelsabb/release-notes
-  digest: "sha256:608756523227bcc035cc4c2841013405771b24d48acde2df802b0f832b6f2f7f"
+  digest: "sha256:1b8fd07cb9ee86176b6ed6fdf31a614833d34611c47517bca95b4479f37fcfd1"
   version: "1.2.0"

@@ -107,7 +107,15 @@ After switching to a root app + ApplicationSet and pointing Argo CD at the GitHu
 | Clean cluster, fresh clone from GitHub, only `make up` (final check before submitting) | Synced/Healthy and serving in **5 min 26 s**, while CI pushed a `deploy(dev)` commit mid-bootstrap; `make e2e` **38/38**. The first attempt found two bugs that only show up when `main` moves during a run (`make up` waiting for an outdated commit; `make e2e` reading the local checkout); both fixed |
 | Remove an environment (runbook, PR #9) | Application deleted in about 10 s, workloads kept (preserveResourcesOnDeletion) until `kubectl delete namespace staging` |
 
-## Not verified
+## Reviewer path (local mode, final check)
 
-- Local mode was verified before this change (sections above) and its code path is unchanged
-  apart from the shared delivery function; it was not re-run end to end afterwards.
+The three commands at the top of the README, run from a fresh clone of GitHub on a clean cluster:
+
+| Step | Result |
+|---|---|
+| `make up GITOPS_MODE=local` | Synced/Healthy and serving in 6 min 06 s |
+| `make demo-rollout` | 1.2.0 → 1.3.0 built locally, promoted under traffic: **0 of 6,000 requests failed** |
+| `make rollback ENV=prod` | back to 1.2.0 and serving it in 35 s |
+| `make e2e` | 38/38 |
+
+Everything in the brief has now been run in both modes; nothing is left unverified.

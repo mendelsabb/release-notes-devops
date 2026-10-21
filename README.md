@@ -12,6 +12,14 @@ downtime.
   digest). Build once, promote the same digest to prod by pull request, and roll back by restoring
   the previous digest.
 
+**Reviewer path** (no push access to this repository needed):
+
+```bash
+make up GITOPS_MODE=local   # cluster + platform + dev and prod, from this checkout (~4 min)
+make demo-rollout           # ship a new version under in-cluster traffic, report failed requests
+make rollback ENV=prod      # one-command way back
+```
+
 Trade-offs and limitations are in [DECISIONS.md](DECISIONS.md). What was actually executed, with
 numbers, is in [docs/verification.md](docs/verification.md). Day-to-day tasks (adding an
 environment, schema changes, troubleshooting) are in [docs/operations.md](docs/operations.md).
@@ -234,10 +242,10 @@ make demo-rollout            # or VERSION=1.2.0 make demo-rollout
 4. Prints the generator's report (totals, failure breakdown, p50/p95/p99, and first/last time each
    version was seen) and **exits non-zero if any request failed**.
 
-Measured: **6,002 requests, 0 failed** during 1.0.0 → 1.1.0 (details in
-[docs/verification.md](docs/verification.md)). The version switch is visible in the UI's header
-badge, `/version` and the `X-App-Version` header. All of these come from build arguments baked into
-the image.
+Measured: **6,004 requests, 0 failed** during 1.0.0 → 1.2.0 through the GitHub flow (every run is
+listed in [docs/verification.md](docs/verification.md)). The switch is visible in the UI's header
+badge (version and git commit), `/version` and the `X-App-Version` header. All of these come from
+build arguments baked into the image, so they always describe the running artifact.
 
 You can also measure manually: run `make traffic ENV=prod DURATION=180` in one terminal and
 `make release VERSION=x` / `make promote` / `make rollback ENV=prod` in another. Extra generator flags
@@ -253,7 +261,7 @@ enforces this); `progressDeadlineSeconds: 120` turns a stuck rollout into a visi
 
 | Command | What happens | Measured |
 |---|---|---|
-| `make demo-broken-rollout` | deploys an image whose `/ready` always fails, under traffic | new pod never Ready, 4 old pods keep serving, `ProgressDeadlineExceeded`, Argo CD **Synced/Degraded**; auto `make rollback` → Healthy; **0 of ~9,600** requests failed |
+| `make demo-broken-rollout` | deploys an image whose `/ready` always fails, under traffic | new pod never Ready, 4 old pods keep serving, `ProgressDeadlineExceeded`, Argo CD **Synced/Degraded**; auto `make rollback` → Healthy; **0 of 24,001** requests failed (whole drill incl. rollback) |
 | `make demo-pod-kill` | `kubectl delete pod` on one prod pod, under traffic | replica restored; **0 of 2,400** failed |
 | `CRASH=1 make demo-pod-kill` | SIGKILL of the app process (no preStop, no drain) | kubelet restarts the container; **4–8 of ~1,800** failed (connection refused, a few ms window) |
 | `make demo-db-restart` | deletes the Postgres pod, under traffic | same PVC re-attached, data intact, back in about 2–3 s, no API restarts (liveness ignores the DB); **48–80 of ~3,600** got `503`. Postgres is a single point of failure |

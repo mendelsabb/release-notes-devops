@@ -1,9 +1,13 @@
 # Verification record
 
-Everything below was executed on **2026-10-20** with Docker 29.4, kind 0.33 (Kubernetes 1.35.1),
+Everything below was executed on **2026-10-20 and 21** with Docker 29.4, kind 0.33 (Kubernetes 1.35.1),
 Helm 4.1.1 and Argo CD 3.5 (chart 10.10.5), within the resources listed in the README. Unless noted, the numbers come from the final run in a **fresh clone**
 after `make clean` (no cluster, no registry), which is what a reviewer would do. Earlier runs during
 development gave the same results within the ranges shown.
+
+Two sets of demo runs are recorded: the first full run in local mode (next sections) and the later
+runs through the GitHub flow ([GitHub mode](#github-mode-applicationset--argo-cd-watching-github)).
+The README and DECISIONS quote the GitHub-mode numbers.
 
 ## Static checks and tests
 
@@ -32,7 +36,7 @@ development gave the same results within the ranges shown.
 | NetworkPolicy | pod without the API labels → `TimeoutError` to Postgres; pod with them → connected |
 | Pod Security | `dev`/`prod` enforce `restricted`; app, Postgres, migration Job and traffic Job all admitted |
 
-## Rollouts, rollback and failures (in-cluster traffic, ~40 req/s, new connection per request)
+## Rollouts, rollback and failures: local mode (in-cluster traffic, ~40 req/s, new connection per request)
 
 | Scenario | Requests | Failed | Notes |
 |---|---|---|---|

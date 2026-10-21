@@ -1,7 +1,7 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from psycopg import errors as pg_errors
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -28,7 +28,7 @@ def build_router(get_session, metrics: Metrics) -> APIRouter:
         return list(session.scalars(stmt))
 
     @router.post("", response_model=ReleaseOut, status_code=status.HTTP_201_CREATED)
-    def create_release(payload: ReleaseCreate, session: SessionDep, response: Response) -> Release:
+    def create_release(payload: ReleaseCreate, session: SessionDep) -> Release:
         release = Release(version=payload.version, description=payload.description)
         session.add(release)
         try:
@@ -46,7 +46,6 @@ def build_router(get_session, metrics: Metrics) -> APIRouter:
         session.refresh(release)
         metrics.releases_created.inc()
         log.info("release recorded", extra={"release_version": release.version})
-        response.headers["Location"] = f"/api/releases/{release.id}"
         return release
 
     return router

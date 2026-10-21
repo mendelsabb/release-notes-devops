@@ -68,7 +68,6 @@ def test_create_and_list(client):
     assert created["version"] == "1.0.0"
     assert isinstance(created["id"], int)
     assert created["released_at"]
-    assert resp.headers["Location"] == f"/api/releases/{created['id']}"
 
     listed = client.get("/api/releases").json()
     assert [r["version"] for r in listed] == ["1.0.0"]

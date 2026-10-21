@@ -279,7 +279,17 @@ app_synced_revision() {
   k -n argocd get application "release-notes-$1" -o jsonpath='{.status.sync.revision}' 2>/dev/null
 }
 
-_app_ready() { [[ "$(app_synced_revision "$1")" == "$2" && "$(app_status "$1")" == "Synced/Healthy" ]]; }
+# _app_ready <env> <revision>: Synced/Healthy at <revision> or at a newer commit that
+# contains it (e.g. CI's digest commit, or a push that landed while we were waiting).
+_app_ready() {
+  local synced
+  [[ "$(app_status "$1")" == "Synced/Healthy" ]] || return 1
+  synced=$(app_synced_revision "$1")
+  [[ "$synced" == "$2" ]] && return 0
+  git -C "$ROOT" cat-file -e "${synced}^{commit}" 2>/dev/null ||
+    git -C "$ROOT" fetch --quiet origin "$GITOPS_BRANCH" 2>/dev/null || return 1
+  git -C "$ROOT" merge-base --is-ancestor "$2" "$synced" 2>/dev/null
+}
 
 # wait_for_app <env> <timeout>: Argo CD has synced the desired revision *and*
 # the app is Healthy. "Synced" alone only means manifests were applied.

@@ -51,17 +51,24 @@ invalid_rejected() {
 }
 ui_served() { curl -fsS "http://127.0.0.1:$1/" | grep -q '<title>Release Notes</title>'; }
 version_matches_git() {
-  [[ "$(curl -fsS "http://127.0.0.1:$(port_of "$1")/version" | json 'd["version"]')" == "$(image_field "$1" version)" ]]
+  [[ "$(curl -fsS "http://127.0.0.1:$(port_of "$1")/version" | json 'd["version"]')" == "$(repo_image_field "$1" version)" ]]
 }
 running_digest_matches_git() {
-  [[ "$(k -n "$1" get deploy release-notes -o jsonpath='{.spec.template.spec.containers[0].image}')" == *"@$(image_field "$1" digest)" ]]
+  [[ "$(k -n "$1" get deploy release-notes -o jsonpath='{.spec.template.spec.containers[0].image}')" == *"@$(repo_image_field "$1" digest)" ]]
 }
 # Compare with the repository Argo CD watches (local commits may not be pushed yet).
 if [[ "$(gitops_mode)" == local ]]; then
   repo_head=$(git ls-remote "$GIT_MIRROR_HOST_URL" "refs/heads/${GITOPS_BRANCH}" | cut -f1)
 else
   repo_head=$(git ls-remote origin "refs/heads/${GITOPS_BRANCH}" | cut -f1)
+  git -C "$ROOT" fetch --quiet origin "$GITOPS_BRANCH"
 fi
+# What Git says an environment should run, read from the commit Argo CD watches
+# (not the local checkout, which may be behind, e.g. before CI's digest commit).
+repo_image_field() {
+  git -C "$ROOT" show "${repo_head}:gitops/environments/$1/image.yaml" |
+    sed -n "s/^  $2: *\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p"
+}
 # Argo CD polls the repo; after a recent push give it up to 2 minutes to catch up.
 argo_healthy() {
   local deadline=$((SECONDS + 120))

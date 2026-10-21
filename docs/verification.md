@@ -14,8 +14,8 @@ development gave the same results within the ranges shown.
 | Workflow lint | `actionlint` 1.7.7 on `.github/workflows/*` | clean |
 | Unit tests | `pytest tests/unit` | 33 passed |
 | Integration tests (Postgres 17, Alembic) | `pytest tests/integration` | 9 passed |
-| Chart policy tests | `pytest tests/chart` | 21 passed |
-| **Total** | `make test` | **63 passed, 0 failed, 0 skipped** |
+| Chart policy tests | `pytest tests/chart` | 22 passed |
+| **Total** | `make test` | **64 passed, 0 failed, 0 skipped** |
 | Manifests | `make validate` (helm lint --strict, template dev+prod, kubeconform -strict incl. Argo CD CRDs) | 29 resources valid, 0 skipped |
 | Misconfiguration scan | Trivy 0.67 `config` on rendered manifests + Dockerfile | 0 HIGH/CRITICAL |
 | Image vulnerabilities | Trivy 0.67 `image`, fixable HIGH/CRITICAL | 0 (after replacing `psycopg[binary]`, see below) |

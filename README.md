@@ -104,6 +104,11 @@ make status    # desired state in git vs what Argo CD / Kubernetes report
 make e2e       # 38 end-to-end checks against the running stack
 ```
 
+**Reviewing without push access to this repository?** `make up` works as is (Argo CD only reads
+the public repo), but `make release/promote/rollback` and the rollout demos open pull requests here.
+Run everything with `make up GITOPS_MODE=local` instead: same GitOps flow, with an in-cluster git
+mirror and a local registry, nothing leaves your machine.
+
 `make up` is idempotent; rerun it to converge after a failure. It:
 
 1. checks prerequisites, Docker memory and free ports;

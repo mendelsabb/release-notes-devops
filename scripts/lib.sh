@@ -210,7 +210,12 @@ deliver_change() {
     git -C "$ROOT" branch --quiet -D "$branch"
     return 0
   fi
-  git -C "$ROOT" push --quiet -u origin "$branch" 2>/dev/null
+  if ! git -C "$ROOT" push --quiet -u origin "$branch" 2>/dev/null; then
+    git -C "$ROOT" switch --quiet "$GITOPS_BRANCH"
+    git -C "$ROOT" branch --quiet -D "$branch"
+    die "Cannot push to $(github_repo_url): GitHub mode opens pull requests there, which needs push access.
+    Without it, run the same commands in the offline mode: make up GITOPS_MODE=local"
+  fi
   pr=$(gh pr create --repo "$(github_slug)" --base "$GITOPS_BRANCH" --head "$branch" \
     --title "$msg" --body "Opened by \`make\` ($(basename "$0")). Only desired state changes; Argo CD deploys it after merge.")
   ok "Opened $pr"

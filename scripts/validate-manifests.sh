@@ -9,6 +9,8 @@ require_cmd helm
 KUBE_VERSION=1.35.0
 KUBECONFORM_IMAGE=ghcr.io/yannh/kubeconform:v0.7.0
 out="$ROOT/.local/rendered"
+# Start empty: files left from a removed environment must not be validated.
+rm -rf "$out"
 mkdir -p "$out"
 
 for env in "${ENVIRONMENTS[@]}"; do
